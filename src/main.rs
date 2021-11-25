@@ -1,5 +1,4 @@
-
-/// Collect common functions used in defining strange attractors.
+/// A trait to collect common functions used in defining strange attractors.
 ///
 /// Examples of strange attractors:
 /// - [Clifford Attractors](http://paulbourke.net/fractals/clifford/)
@@ -28,6 +27,28 @@ trait Attractor {
     /// element in `params` is `Some<f64>`, then that value will be unpacked into the corresponding
     /// parameter.
     fn set_params(&mut self, params: Vec<Option<f64>>);
+
+    /// Save the attractor to a file.
+    ///
+    /// The attractor's name, it's parameters, and every coordinate taken so far is saved to the
+    /// directory named `directory` as a filename determined by the parameters of the attractor to
+    /// allow for computer-based retrieval.
+    ///
+    /// The format of the file is in plain text like:
+    /// ```
+    /// #<NAME>,<NUM_PARAMETERS>,<NUM_DIMENSIONS>
+    /// #<NAME_OF_PARAMETER_1>=<VALUE_OF_PARAMETER_1>
+    /// ...
+    /// #<NAME_OF_PARAMETER_n>=<VALUE_OF_PARAMETER_n>
+    /// 0:<X_POSITION>,<Y_POSITION>,<Z_POSITION>
+    /// 1:<X_POSITION>,<Y_POSITION>,<Z_POSITION>
+    /// 2:<X_POSITION>,<Y_POSITION>,<Z_POSITION>
+    /// 3:<X_POSITION>,<Y_POSITION>,<Z_POSITION>
+    /// ...
+    /// ```
+    /// Where the z-position is only included for 3-dimensional attractors. These files are
+    /// designed to be human-readable for debug purposes.
+    fn to_file(&mut self, directory: String);
 }
 
 /// A Clifford Attractor, as discovered by [Clifford A
@@ -99,35 +120,43 @@ impl Attractor for CliffordAttractor {
         assert!(params.len() == 4,
             "Clifford Attractors require 4 parameters (a, b, c, d) but you only gave {}", params.len());
         // Go through each parameter and check if it needs to be updated
-        match params[0] {
-            Some(a) => self.a = a,
-            None => (),
+        if let Some(a) = params[0] {
+            self.a = a;
         }
-        match params[2] {
-            Some(b) => self.b = b,
-            None => (),
+        if let Some(b) = params[1] {
+            self.b = b;
         }
-        match params[2] {
-            Some(c) => {
-                self.c = c;
-                // Recalculate the xmin and xmax values
-                self.xmin = -1.0 - c.abs();
-                self.xmax =  1.0 + c.abs();
-            },
-            None => (),
+        if let Some(c) = params[2] {
+            self.c = c;
+            // Recalculate the xmin and xmax values
+            self.xmin = -1.0 - c.abs();
+            self.xmax =  1.0 + c.abs();
         }
-        match params[3] {
-            Some(d) => {
-                self.d = d;
-                // Recalculate the ymin and ymax values
-                self.ymin = -1.0 - d.abs();
-                self.ymax =  1.0 + d.abs();
-            },
-            None => (),
+        if let Some(d) = params[3] {
+            self.d = d;
+            // Recalculate the ymin and ymax values
+            self.ymin = -1.0 - d.abs();
+            self.ymax =  1.0 + d.abs();
         }
     }
+
+    /// Not yet implemented
+    fn to_file(&mut self, filename: String) {}
 }
 
+/// Not really used just yet, mainly contains some primitive explorations
 fn main() {
-    println!("Hello, world!");
+    let params = vec![1.5; 4];
+    let mut clifford: CliffordAttractor = CliffordAttractor::new(params);
+    let mut x = 0.0;
+    let mut y = 0.0;
+    println!("#clifford,4,2");
+    println!("#a={}", clifford.a);
+    println!("#b={}", clifford.b);
+    println!("#c={}", clifford.c);
+    println!("#d={}", clifford.d);
+    for i in 0..10 {
+        println!("{}:{},{}", i, x, y);
+        clifford.step(&mut x, &mut y);
+    }
 }
