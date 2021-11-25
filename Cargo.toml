@@ -2,7 +2,7 @@
 name = "attractors"
 version = "0.1.0"
 edition = "2021"
-authors = "Boyd Kane"
+authors = ["Boyd Kane"]
 description = "Generate, visualise, and explore strange attractor visually"
 license = "GPL-3.0-only"
 
