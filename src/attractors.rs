@@ -29,7 +29,7 @@ pub trait Attractor {
     /// formula. Do this for `num_steps` steps, saving each step to `history`.
     fn step(&mut self, x: &mut f64, y: &mut f64, num_steps: usize);
 
-    /// Change the parameters of the Attractor. 
+    /// Change the parameters of the Attractor.
     ///
     /// If an element in params is `None`, then that parameter will remain how it was. If an
     /// element in `params` is `Some<f64>`, then that value will be unpacked into the corresponding
@@ -58,6 +58,7 @@ pub trait Attractor {
     /// designed to be human-readable for debug purposes.
     fn to_file(&mut self, directory: String);
 }
+
 /// A Clifford Attractor, as discovered by [Clifford A
 /// Pickover](https://en.wikipedia.org/wiki/Clifford_A._Pickover)
 ///
@@ -70,19 +71,19 @@ pub trait Attractor {
 /// ```
 pub struct CliffordAttractor {
     /// Parameter a is only used in calculating the new x value.
-    a: f64, 
+    a: f64,
     /// Parameter b is only used in calculating the new y value.
-    b: f64, 
+    b: f64,
     /// Parameter c roughly dictates the min and max x values.
-    c: f64, 
+    c: f64,
     /// Parameter d roughly dictates the min and max y values.
     d: f64,
     /// The minimum x value, calculated as: `min(sin()) - |c| * min(cos()) == -1.0 - c.abs()`
-    xmin: f64, 
+    xmin: f64,
     /// The maximum x value, calculated as: `max(sin()) + |c| * max(cos()) ==  1.0 + c.abs()`
     xmax: f64,
     /// The minimum y value, calculated as: `min(sin()) - |d| * min(cos()) == -1.0 - d.abs()`
-    ymin: f64, 
+    ymin: f64,
     /// The maximum y value, calculated as: `max(sin()) + |d| * max(cos()) ==  1.0 + d.abs()`
     ymax: f64,
     /// Store all the previously visited points in the history vector
@@ -116,7 +117,7 @@ impl Attractor for CliffordAttractor {
     }
 
     /// Given an xy position, mutate x and y to be the next position based on the Clifford attractor
-    /// formula: 
+    /// formula:
     /// ```
     /// x_new = sin(a * y) + c * cos(a * x)
     /// y_new = sin(b * x) + d * cos(b * y)
@@ -134,7 +135,7 @@ impl Attractor for CliffordAttractor {
 
 
     /// Set the parameters a, b, c, d of the Clifford attractor and recalculate the x, y min and max
-    /// values as needed. 
+    /// values as needed.
     ///
     /// A `Vec<Option<f64>>` is required, where the length of the vector must be
     /// 4 If an item in the vector is `Some`, then that item will be set to the value of a, b, c,
@@ -143,12 +144,8 @@ impl Attractor for CliffordAttractor {
         assert!(params.len() == 4,
         "Clifford Attractors require 4 parameters (a, b, c, d) but you only gave {}", params.len());
         // Go through each parameter and check if it needs to be updated
-        if let Some(a) = params[0] {
-            self.a = a;
-        }
-        if let Some(b) = params[1] {
-            self.b = b;
-        }
+        if let Some(a) = params[0] { self.a = a; }
+        if let Some(b) = params[1] { self.b = b; }
         if let Some(c) = params[2] {
             self.c = c;
             // Recalculate the xmin and xmax values
@@ -168,10 +165,118 @@ impl Attractor for CliffordAttractor {
         let mut file = std::fs::File::create(filename).expect("Failed to create file.");
         // The preamble contains various things defining the attractor in question, and every line
         // in the preamble starts with a `#`
-        let preamble: String = format!("#{},{},{}\n#a={}\n#b={}\n#c={}\n#d={}\n", 
+        let preamble: String = format!("#{},{},{}\n#a={}\n#b={}\n#c={}\n#d={}\n",
                                         CliffordAttractor::NAME,
                                         CliffordAttractor::NUM_PARAMETERS,
                                         CliffordAttractor::DIMENSIONALITY,
+                                        self.a, self.b, self.c, self.d);
+        file.write_all(preamble.as_bytes()).expect("Failed to preamble write to file.");
+        for (i, item) in self.history.iter().enumerate() {
+            let position: String = format!("{}:{},{}\n", i, item[0], item[1]);
+            file.write_all(position.as_bytes()).expect("Failed to write position to file.");
+        }
+    }
+}
+
+/// [De Jong Attractors](http://paulbourke.net/fractals/peterdejong/)
+/// The parameters a, b, c, d are all used in the formula for the attractor, which takes in one xy
+/// position and returns a new xy position. Repeatedly doing this operation leads to the De Jong
+/// attractor. The formula is:
+/// ```
+/// x_new = sin(a * y_old) - cos(b * x_old)
+/// y_new = sin(c * x_old) - cos(d * y_old)
+/// ```
+/// Which is similar to the Clifford Attractor, but without scaling constants on the second term.
+pub struct DeJongAttractor {
+    /// Parameter a
+    a: f64,
+    /// Parameter b
+    b: f64,
+    /// Parameter c
+    c: f64,
+    /// Parameter d
+    d: f64,
+    /// The minimum x value, which is always -2 for DeJong attractors
+    xmin: f64,
+    /// The maximum x value, which is always 2 for DeJong attractors
+    xmax: f64,
+    /// The minimum y value, which is always -2 for DeJong attractors
+    ymin: f64,
+    /// The maximum y value, which is always 2 for DeJong attractors
+    ymax: f64,
+    /// Store all the previously visited points in the history vector
+    history: Vec<Vec<f64>>,
+}
+
+impl Attractor for DeJongAttractor {
+    /// The name used to specify the attractor in text files.
+    const NAME: &'static str= "dejong";
+    /// DeJong attractors live in 2 dimensions.
+    const DIMENSIONALITY: u8 = 2;
+    /// DeJong attractors require 4 parameters.
+    const NUM_PARAMETERS: u8 = 4;
+
+    fn new(params: Vec<f64>) -> Self {
+        assert!(params.len() == 4,
+        "DeJong Attractors require 4 parameters (a, b, c, d) but you only gave {}", params.len());
+
+        DeJongAttractor {
+            // Create a new DeJong attractor from the vector of parameters `params`
+            a: params[0],
+            b: params[1],
+            c: params[2],
+            d: params[3],
+            xmin: -2.0, // min(sin()) - min(cos())
+            xmax:  2.0, // max(sin()) + max(cos())
+            ymin: -2.0, // min(sin()) - min(cos())
+            ymax:  2.0, // max(sin()) + max(cos())
+            history: vec![vec![0.0, 0.0]]
+        }
+    }
+
+    /// Given an xy position, mutate x and y to be the next position based on the DeJong attractor
+    /// formula:
+    /// ```
+    /// x_new = sin(a * y_old) - cos(b * x_old)
+    /// y_new = sin(c * x_old) - cos(d * y_old)
+    /// ```
+    /// The `num_steps` variable determines how many times this recurrent equation is evaluated. The x
+    /// and y values for each individual iteration can be retrieved from the `.history` vector
+    /// variable.
+    fn step(&mut self, x: &mut f64, y: &mut f64, num_steps: usize) {
+        for _ in 1..num_steps {
+            *x = (self.a * *y).sin() - (self.b * *x).cos();
+            *y = (self.c * *x).sin() - (self.d * *y).cos();
+            self.history.push(vec![ *x, *y ]);
+        }
+    }
+
+
+    /// Set the parameters a, b, c, d of the DeJong attractor and recalculate the x, y min and max
+    /// values as needed.
+    ///
+    /// A `Vec<Option<f64>>` is required, where the length of the vector must be
+    /// 4 If an item in the vector is `Some`, then that item will be set to the value of a, b, c,
+    /// or d based on the index of the item
+    fn set_params(&mut self, params: Vec<Option<f64>>) {
+        assert!(params.len() == 4,
+        "DeJong Attractors require 4 parameters (a, b, c, d) but you only gave {}", params.len());
+        // Go through each parameter and check if it needs to be updated
+        if let Some(a) = params[0] { self.a = a; }
+        if let Some(b) = params[1] { self.b = b; }
+        if let Some(c) = params[2] { self.c = c; }
+        if let Some(d) = params[3] { self.d = d; }
+    }
+
+    /// Write the DeJong Attractor to the file named `filename`
+    fn to_file(&mut self, filename: String) {
+        let mut file = std::fs::File::create(filename).expect("Failed to create file.");
+        // The preamble contains various things defining the attractor in question, and every line
+        // in the preamble starts with a `#`
+        let preamble: String = format!("#{},{},{}\n#a={}\n#b={}\n#c={}\n#d={}\n",
+                                        DeJongAttractor::NAME,
+                                        DeJongAttractor::NUM_PARAMETERS,
+                                        DeJongAttractor::DIMENSIONALITY,
                                         self.a, self.b, self.c, self.d);
         file.write_all(preamble.as_bytes()).expect("Failed to preamble write to file.");
         for (i, item) in self.history.iter().enumerate() {
