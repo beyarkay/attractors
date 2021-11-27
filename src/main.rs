@@ -1,3 +1,6 @@
+// Used to write attractors to files
+use std::io::Write;
+
 /// A trait to collect common functions used in defining strange attractors.
 ///
 /// Examples of strange attractors:
@@ -164,7 +167,21 @@ impl Attractor for CliffordAttractor {
     }
 
     /// Not yet implemented
-    fn to_file(&mut self, _filename: String) {}
+    fn to_file(&mut self, _filename: String) {
+        let mut file = std::fs::File::create(_filename).expect("Failed to create file.");
+        // The preamble contains various things defining the attractor in question, and every line
+        // in the preamble starts with a `#`
+        let preamble: String = format!("#{},{},{}\n#a={}\n#b={}\n#c={}\n#d={}\n", 
+                                       CliffordAttractor::NAME,
+                                       CliffordAttractor::NUM_PARAMETERS,
+                                       CliffordAttractor::DIMENSIONALITY,
+                                       self.a, self.b, self.c, self.d);
+        file.write_all(preamble.as_bytes()).expect("Failed to preamble write to file.");
+        for (i, item) in self.history.iter().enumerate() {
+            let position: String = format!("{}:{},{}\n", i, item[0], item[1]);
+            file.write_all(position.as_bytes()).expect("Failed to write position to file.");
+        }
+    }
 }
 
 /// Not really used just yet, mainly contains some primitive explorations
@@ -173,13 +190,6 @@ fn main() {
     let mut clifford: CliffordAttractor = CliffordAttractor::new(params);
     let mut x = 0.0;
     let mut y = 0.0;
-    println!("#{},{},{}", CliffordAttractor::NAME, CliffordAttractor::NUM_PARAMETERS, CliffordAttractor::DIMENSIONALITY);
-    println!("#a={}", clifford.a);
-    println!("#b={}", clifford.b);
-    println!("#c={}", clifford.c);
-    println!("#d={}", clifford.d);
-    for i in 0..10 {
-        println!("{}:{},{}", i, x, y);
-        clifford.step(&mut x, &mut y, 1);
-    }
+    clifford.step(&mut x, &mut y, 10);
+    clifford.to_file("filename.txt".to_string());
 }
