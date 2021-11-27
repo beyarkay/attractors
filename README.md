@@ -4,8 +4,8 @@
 
 This repository is a work in progress, and will contain Rust code to:
 
-- generate strange attractors of various kinds, 
-- visualise those attractors, 
+- generate strange attractors of various kinds,
+- visualise those attractors,
 - save images of the attractors,
 - create videos of the attractors, as one or more parameters vary,
 - and to 'explore' the parameter space of the attractor
@@ -54,9 +54,13 @@ opened in order to find the correct attractor.
 ## Installation
 
 As this is unfinished, installation is not recommended. But if you must, then
-you'll have to `git clone https://github.com/beyarkay/attractors.git` and then
-use `cargo run` to execute the main body of the code. There's no guarantees
-(yet) of it working or even doing something you want it to do though.
+you'll have to install Rust, and then
 
+1. `git clone https://github.com/beyarkay/attractors.git`
+2. `cargo doc --open` to open up the documentation (it's comprehensive), or
+3. `cargo run` to execute the main body of the code.
+
+There's no guarantees (yet) of it working or even doing something you want it
+to do though.
 
 
