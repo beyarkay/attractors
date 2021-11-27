@@ -25,8 +25,8 @@ trait Attractor {
     fn new(params: Vec<f64>) -> Self;
 
     /// Given an xy position, mutate x and y to be the next position based on the Attractor's
-    /// formula. Do this for `count` steps, saving each step to `history`.
-    fn step(&mut self, x: &mut f64, y: &mut f64, _count: usize);
+    /// formula. Do this for `num_steps` steps, saving each step to `history`.
+    fn step(&mut self, x: &mut f64, y: &mut f64, num_steps: usize);
 
     /// Change the parameters of the Attractor. 
     ///
@@ -121,9 +121,15 @@ impl Attractor for CliffordAttractor {
     /// x_new = sin(a * y) + c * cos(a * x)
     /// y_new = sin(b * x) + d * cos(b * y)
     /// ```
-    fn step(&mut self, x: &mut f64, y: &mut f64, _count: usize) {
-        *x = (self.a * *y).sin() + self.c * (self.a * *x).cos();
-        *y = (self.b * *x).sin() + self.d * (self.b * *y).cos();
+    /// The `num_steps` variable determines how many times this recurrent equation is evaluated. The x
+    /// and y values for each individual iteration can be retrieved from the `.history` vector
+    /// variable.
+    fn step(&mut self, x: &mut f64, y: &mut f64, num_steps: usize) {
+        for _ in 1..num_steps {
+            *x = (self.a * *y).sin() + self.c * (self.a * *x).cos();
+            *y = (self.b * *x).sin() + self.d * (self.b * *y).cos();
+            self.history.push(vec![ *x, *y ]);
+        }
     }
 
 
