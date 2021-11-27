@@ -14,12 +14,19 @@
 /// - [Burke-Shaw Attractors](http://paulbourke.net/fractals/burkeshaw/)
 /// - [Yu-Wang Attractors](http://paulbourke.net/fractals/yuwang/)
 trait Attractor {
+    /// A name for the attractor matching [a-zA-Z]+, used when saving a sequence of points to file
+    const NAME: &'static str;
+    /// The number of dimensions the attractor lives in. Almost always 2 or 3.
+    const DIMENSIONALITY: u8;
+    /// The number of parameters required by the attractor.
+    const NUM_PARAMETERS: u8;
+
     /// Create a new Attractor from the vector of parameters `params`.
     fn new(params: Vec<f64>) -> Self;
 
     /// Given an xy position, mutate x and y to be the next position based on the Attractor's
-    /// formula.
-    fn step(&mut self, x: &mut f64, y: &mut f64);
+    /// formula. Do this for `count` steps, saving each step to `history`.
+    fn step(&mut self, x: &mut f64, y: &mut f64, _count: usize);
 
     /// Change the parameters of the Attractor. 
     ///
@@ -77,16 +84,25 @@ struct CliffordAttractor {
     /// The minimum y value, calculated as: `min(sin()) - |d| * min(cos()) == -1.0 - d.abs()`
     ymin: f64, 
     /// The maximum y value, calculated as: `max(sin()) + |d| * max(cos()) ==  1.0 + d.abs()`
-    ymax: f64
+    ymax: f64,
+    /// Store all the previously visited points in the history vector
+    history: Vec<Vec<f64>>,
 }
 
 impl Attractor for CliffordAttractor { 
-    /// Create a new Clifford attractor from the vector of parameters `params`
+    /// The name used to specify the attractor in text files.
+    const NAME: &'static str= "clifford";
+    /// Clifford attractors live in 2 dimensions.
+    const DIMENSIONALITY: u8 = 2;
+    /// Clifford attractors require 4 parameters.
+    const NUM_PARAMETERS: u8 = 4;
+
     fn new(params: Vec<f64>) -> Self {
         assert!(params.len() == 4,
             "Clifford Attractors require 4 parameters (a, b, c, d) but you only gave {}", params.len());
 
         CliffordAttractor {
+            // Create a new Clifford attractor from the vector of parameters `params`
             a: params[0],
             b: params[1],
             c: params[2],
@@ -95,6 +111,7 @@ impl Attractor for CliffordAttractor {
             xmax:  1.0 + params[2].abs(), // max(sin()) + |c| * max(cos())
             ymin: -1.0 - params[3].abs(), // min(sin()) - |d| * min(cos())
             ymax:  1.0 + params[3].abs(), // max(sin()) + |d| * max(cos())
+            history: vec![vec![0.0, 0.0]]
         }
     }
 
@@ -104,7 +121,7 @@ impl Attractor for CliffordAttractor {
     /// x_new = sin(a * y) + c * cos(a * x)
     /// y_new = sin(b * x) + d * cos(b * y)
     /// ```
-    fn step(&mut self, x: &mut f64, y: &mut f64) {
+    fn step(&mut self, x: &mut f64, y: &mut f64, _count: usize) {
         *x = (self.a * *y).sin() + self.c * (self.a * *x).cos();
         *y = (self.b * *x).sin() + self.d * (self.b * *y).cos();
     }
@@ -141,7 +158,7 @@ impl Attractor for CliffordAttractor {
     }
 
     /// Not yet implemented
-    fn to_file(&mut self, filename: String) {}
+    fn to_file(&mut self, _filename: String) {}
 }
 
 /// Not really used just yet, mainly contains some primitive explorations
@@ -150,13 +167,13 @@ fn main() {
     let mut clifford: CliffordAttractor = CliffordAttractor::new(params);
     let mut x = 0.0;
     let mut y = 0.0;
-    println!("#clifford,4,2");
+    println!("#{},{},{}", CliffordAttractor::NAME, CliffordAttractor::NUM_PARAMETERS, CliffordAttractor::DIMENSIONALITY);
     println!("#a={}", clifford.a);
     println!("#b={}", clifford.b);
     println!("#c={}", clifford.c);
     println!("#d={}", clifford.d);
     for i in 0..10 {
         println!("{}:{},{}", i, x, y);
-        clifford.step(&mut x, &mut y);
+        clifford.step(&mut x, &mut y, 1);
     }
 }
