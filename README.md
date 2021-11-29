@@ -63,4 +63,9 @@ you'll have to install Rust, and then
 There's no guarantees (yet) of it working or even doing something you want it
 to do though.
 
+# TODO
+
+- Add images of attractors
+- Implement visualisations
+- Implement different attractor types
 
