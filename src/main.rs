@@ -3,6 +3,9 @@ use crate::attractors::*;
 extern crate minifb;
 use std::cmp;
 
+mod attractors;
+use crate::attractors::*;
+
 use rand::Rng;
 use minifb::{Key, Window, WindowOptions};
 
@@ -10,15 +13,15 @@ const WIDTH: usize = 800;
 const HEIGHT: usize = 800;
 
 fn main() {
-    // let mut noise;
-    // let mut carry;
-    // let mut seed = 0xbeefu32;
+    // Write a CliffordAttractor to file
     let params = vec![1.5; 4];
     let mut clifford: CliffordAttractor = CliffordAttractor::new(params);
     let mut x = 0.0;
     let mut y = 0.0;
     clifford.step(&mut x, &mut y, 10);
     clifford.to_file("filename.txt".to_string());
+
+    // Actually draw a Clifford attractor
     let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
     let mut attr_count: Vec<u32> = vec![0; WIDTH * HEIGHT];
     let mut hud: Vec<u32> = vec![0; WIDTH * HEIGHT];
