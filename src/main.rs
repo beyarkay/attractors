@@ -1,13 +1,15 @@
-mod attractors;
-use crate::attractors::*;
+// minifb is used for rendering the images
 extern crate minifb;
+use minifb::{Key, Window, WindowOptions};
+// std::cmp is used to get the min/max of values
 use std::cmp;
 
+// attractors.rs contains definitions of various strange attractors
 mod attractors;
 use crate::attractors::*;
 
+// Everything good starts with something random
 use rand::Rng;
-use minifb::{Key, Window, WindowOptions};
 
 const WIDTH: usize = 800;
 const HEIGHT: usize = 800;
@@ -46,7 +48,7 @@ fn main() {
     };
     // Loop through the attractor a few times to get away from (0,0)
     for _ in 1..20 {
-        clifford(&mut pos, &param_pos);
+        call_clifford(&mut pos, &param_pos);
     }
 
     let mut window = Window::new(
@@ -70,7 +72,7 @@ fn main() {
         let min_y: f64 = -1.0 - param_pos.d.abs();
         let max_y: f64 =  1.0 + param_pos.d.abs();
         for _ in 1..50000 {
-            clifford(&mut pos, &param_pos);
+            call_clifford(&mut pos, &param_pos);
             let pos_scaled = Position {
                 x: (pos.x/(max_x-min_x) * 0.95*WIDTH as f64) + 0.5*WIDTH as f64,
                 y: (pos.y/(max_y-min_y) * 0.95*HEIGHT as f64) + 0.5*HEIGHT as f64,
@@ -105,45 +107,43 @@ fn main() {
                     (val * 255.0) as u8);
             }
         }
-        window.get_keys().map(|keys| {
-            for t in keys {
-                match t {
-                    Key::A =>{
-                        param_pos.a += 0.1;
-                        reset(&mut buffer, &mut attr_count, &mut max_points);
-                    },
-                    Key::B =>{
-                        param_pos.b += 0.1;
-                        reset(&mut buffer, &mut attr_count, &mut max_points);
-                    },
-                    Key::C =>{
-                        param_pos.c += 0.1;
-                        reset(&mut buffer, &mut attr_count, &mut max_points);
-                    },
-                    Key::D =>{
-                        param_pos.d += 0.1;
-                        reset(&mut buffer, &mut attr_count, &mut max_points);
-                    },
-                    Key::H => {
-                        show_hud = !show_hud;
-                    },
-                    Key::S => {
-                        param_pos.a = -1.032;
-                        param_pos.b = -1.731;
-                        param_pos.c = -0.286;
-                        param_pos.d = 2.92;
-                    },
-                    Key::R => {
-                        param_pos.a = rng.gen_range(-5.0..5.0);
-                        param_pos.b = rng.gen_range(-5.0..5.0);
-                        param_pos.c = rng.gen_range(-5.0..5.0);
-                        param_pos.d = rng.gen_range(-5.0..5.0);
-                        reset(&mut buffer, &mut attr_count, &mut max_points);
-                    },
-                    _ => (),
-                }
+        window.get_keys().iter().for_each(|key|
+            match key {
+                Key::A => {
+                    param_pos.a += 0.1;
+                    reset(&mut buffer, &mut attr_count, &mut max_points);
+                },
+                Key::B => {
+                    param_pos.b += 0.1;
+                    reset(&mut buffer, &mut attr_count, &mut max_points);
+                },
+                Key::C => {
+                    param_pos.c += 0.1;
+                    reset(&mut buffer, &mut attr_count, &mut max_points);
+                },
+                Key::D => {
+                    param_pos.d += 0.1;
+                    reset(&mut buffer, &mut attr_count, &mut max_points);
+                },
+                Key::H => {
+                    show_hud = !show_hud;
+                },
+                Key::S => {
+                    param_pos.a = -1.032;
+                    param_pos.b = -1.731;
+                    param_pos.c = -0.286;
+                    param_pos.d = 2.92;
+                },
+                Key::R => {
+                    param_pos.a = rng.gen_range(-5.0..5.0);
+                    param_pos.b = rng.gen_range(-5.0..5.0);
+                    param_pos.c = rng.gen_range(-5.0..5.0);
+                    param_pos.d = rng.gen_range(-5.0..5.0);
+                    reset(&mut buffer, &mut attr_count, &mut max_points);
+                },
+                _ => (),
             }
-        });
+        );
         // We unwrap here as we want this code to exit if it fails. Real applications may want to handle this in a different way
         window.update_with_buffer(&buffer, WIDTH, HEIGHT)
               .unwrap();
@@ -156,7 +156,7 @@ struct ParamPosition { a: f64, b: f64, c: f64, d: f64 }
 #[derive(Debug)]
 struct Position { x: f64, y: f64 }
 
-fn clifford(pos: &mut Position, param_pos: &ParamPosition) {
+fn call_clifford(pos: &mut Position, param_pos: &ParamPosition) {
     pos.x = (param_pos.a * pos.y).sin() + param_pos.c * (param_pos.a * pos.x).cos();
     pos.y = (param_pos.b * pos.x).sin() + param_pos.d * (param_pos.b * pos.y).cos();
 }
