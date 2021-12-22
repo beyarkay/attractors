@@ -36,6 +36,8 @@ pub trait Attractor {
     /// parameter.
     fn set_params(&mut self, params: Vec<Option<f64>>);
 
+    fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64>;
+
     /// Save the attractor to a file.
     ///
     /// The attractor's name, it's parameters, and every coordinate taken so far is saved to the
@@ -71,13 +73,13 @@ pub trait Attractor {
 /// ```
 pub struct CliffordAttractor {
     /// Parameter a is only used in calculating the new x value.
-    a: f64,
+    pub a: f64,
     /// Parameter b is only used in calculating the new y value.
-    b: f64,
+    pub b: f64,
     /// Parameter c roughly dictates the min and max x values.
-    c: f64,
+    pub c: f64,
     /// Parameter d roughly dictates the min and max y values.
-    d: f64,
+    pub d: f64,
     /// The minimum x value, calculated as: `min(sin()) - |c| * min(cos()) == -1.0 - c.abs()`
     xmin: f64,
     /// The maximum x value, calculated as: `max(sin()) + |c| * max(cos()) ==  1.0 + c.abs()`
@@ -158,6 +160,43 @@ impl Attractor for CliffordAttractor {
             self.ymin = -1.0 - d.abs();
             self.ymax =  1.0 + d.abs();
         }
+        dbg!(self.a, self.b, self.c, self.d);
+    }
+
+    /// Given a certain `width` and `height` in pixels, return the density of the 
+    /// pixel at `index`, where `index` is equal to:
+    /// ```
+    ///     index = x_position + width * y_position
+    /// ```
+    ///
+    /// The returned density has been normalised to be in the range [0.0, 1.0]
+    /// where 1.0 indicates that pixel was the most frequently landed on, and 
+    /// 0.0 indicates that pixel was never landed on.
+    // TODO: add padding argument to display the attractor on only part of the 
+    // buffer
+    fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64> {
+        let xrange = self.xmax - self.xmin;
+        let yrange = self.ymax - self.ymin;
+        let mut densities = vec![0.0; width * height];
+        let mut densities_max = 0.0;
+
+        // First loop over the history, flooring all the values to find
+        // a histogram of how many times the attractor hit each xy point
+        for pos in &mut self.history {
+            let x = (width as f64 * (pos[0] - self.xmin) / xrange).floor() as usize;
+            let y = (height as f64 * (pos[1] - self.ymin) / yrange).floor() as usize;
+            let i = x + y * width;
+            densities[i] += 1.0;
+            if densities[i] > densities_max {
+                densities_max = densities[i];
+            }
+        }
+        // Then loop over it again, to divide each of the items in the densities 
+        // by the maximum
+        for idx in &mut densities{
+            *idx /= densities_max;
+        }
+        return densities;
     }
 
     /// Write the Clifford Attractor to the file named `filename`
@@ -266,6 +305,31 @@ impl Attractor for DeJongAttractor {
         if let Some(b) = params[1] { self.b = b; }
         if let Some(c) = params[2] { self.c = c; }
         if let Some(d) = params[3] { self.d = d; }
+    }
+
+    fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64> {
+        let xrange = self.xmax - self.xmin;
+        let yrange = self.ymax - self.ymin;
+        let mut densities = vec![0.0; width * height];
+        let mut densities_max = 0.0;
+
+        // First loop over the history, flooring all the values to find
+        // a histogram of how many times the attractor hit each xy point
+        for pos in &mut self.history {
+            let x = ((pos[0] - self.xmin) / xrange).floor() as usize;
+            let y = ((pos[1] - self.ymin) / yrange).floor() as usize;
+            let i = x + y * width;
+            densities[i] += 1.0;
+            if densities[i] > densities_max {
+                densities_max = densities[i];
+            }
+        }
+        // Then loop over it again, to divide each of the items in the densities 
+        // by the maximum
+        for idx in &mut densities{
+            *idx /= densities_max;
+        }
+        return densities;
     }
 
     /// Write the DeJong Attractor to the file named `filename`
