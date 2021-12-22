@@ -1,5 +1,11 @@
 # Attractors
 
+![](img/clifford1.png)
+![](img/clifford2.png)
+![](img/clifford3.png)
+![](img/clifford4.png)
+![](img/clifford5.png)
+
 ### Generate, visualise, and explore strange attractor visually
 
 This repository is a work in progress, and will contain Rust code to:

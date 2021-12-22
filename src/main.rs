@@ -18,8 +18,8 @@ fn main() {
     let params = vec![
                   rng.gen_range(-3.0..3.0),
                   rng.gen_range(-3.0..3.0),
-                  3.0, 
-                  3.0
+                  -1.0, 
+                  -1.0
     ];
     let mut clifford: CliffordAttractor = CliffordAttractor::new(params);
     //clifford.to_file(format!(
