@@ -9,15 +9,16 @@ use crate::attractors::*;
 // Everything good starts with something random
 use rand::Rng;
 
-const WIDTH: usize = 900;
-const HEIGHT: usize = 900;
+const WIDTH: usize = 1700;
+const HEIGHT: usize = 1050;
 
 fn main() {
+    let mut mode: i8 = 1;
     // Write a CliffordAttractor to file
     let mut rng = rand::thread_rng();
     let params = vec![
-                  rng.gen_range(-3.0..3.0),
-                  rng.gen_range(-3.0..3.0),
+                  rng.gen_range(-2.0..2.0),
+                  rng.gen_range(-2.0..2.0),
                   -1.0, 
                   -1.0
     ];
@@ -41,93 +42,151 @@ fn main() {
     });
 
     // Limit to max ~60 fps update rate
-    window.limit_update_rate(Some(std::time::Duration::from_micros(16600)));
+    //window.limit_update_rate(Some(std::time::Duration::from_micros(16600)));
 
     // The attractor is recurrent, so set (0,0) to be the starting point
     let mut x = 0.0;
     let mut y = 0.0;
     // While the window is open and we want to actually draw things
+    // Fewer steps => better responsiveness to keypresses, but 
+    // slower generation overall
+    print!("Stepping...");
+    let mut prev_history_length = clifford.history.len();
+    clifford.step(&mut x, &mut y, 1_000_000);
+    println!("done");
+    let mut densities;
+    let mut hue = rng.gen_range(0.0..230.0);
     while window.is_open() && !window.is_key_down(Key::Q) {
-        // Fewer steps => better responsiveness to keypresses, but 
-        // slower generation overall
-        print!("Stepping...");
-        clifford.step(&mut x, &mut y, 500_000);
-        println!("done");
         // Then use those generated points to draw onto the buffer in 
         // the appropriate spaces
-        let densities = clifford.get_densities(WIDTH, HEIGHT);
-        for (i, item) in buffer.iter_mut().enumerate() {
-            let val: f64 = densities[i];
-            //if show_hud {
-            //    let (a, r, g, b) = u32_to_argb(hud[i]);
-            //    let a: f64 = a as f64;
-            //    let r: f64 = r as f64;
-            //    let g: f64 = g as f64;
-            //    let b: f64 = b as f64;
-            //    *item = argb_to_u32(
-            //        255,
-            //        (val * 255.0 * (1.0 - a) + r * a) as u8,
-            //        (val * 255.0 * (1.0 - a) + g * a) as u8,
-            //        (val * 255.0 * (1.0 - a) + b * a) as u8);
-            //} else {
-            *item = hsla_to_u32(
-                // Hue: 
-                //   0 -> 10: red
-                //  10 -> 45: orange
-                //  45 -> 65: yellow
-                //  65 -> 90: lime
-                //  90 -> 140: green
-                // 140 -> 165: green-blue
-                // 165 -> 190: light blue
-                // 190 -> 250: dark blue
-                // 250 -> 280: purple
-                // 280 -> 345: pink
-                // 345 -> 359: red
-                (140.0 + 50.0 * val) / 255.0,
-                // Saturation: 0 is grey/no colour, 0.7 is pastel, 
-                // 1 is full colour
-                0.8 + 0.2 * val,  // Sat, [0, 1]
-                // Light: 0 is black, 0.5 is full colour, 1 is white
-                0.0 + 0.6 * val.powf(1.0/2.5),  
-                0.9
-                );
+        if clifford.history.len() < 11_100_000 {
+            prev_history_length = clifford.history.len();
+            clifford.step(&mut x, &mut y, 1_000_000);
+        }
+        let has_new_content = prev_history_length != clifford.history.len();
+        let has_enough_new_content = clifford.history.len() % 500_000 == 0;
+        let is_first_draw = clifford.history.len() <= 2_100_000;
+
+        if has_new_content && (has_enough_new_content || is_first_draw) {
+            densities = clifford.get_densities(WIDTH, HEIGHT);
+            for (i, item) in buffer.iter_mut().enumerate() {
+                let val: f64 = densities[i];
+                //if show_hud {
+                //    let (a, r, g, b) = u32_to_argb(hud[i]);
+                //    let a: f64 = a as f64;
+                //    let r: f64 = r as f64;
+                //    let g: f64 = g as f64;
+                //    let b: f64 = b as f64;
+                //    *item = argb_to_u32(
+                //        255,
+                //        (val * 255.0 * (1.0 - a) + r * a) as u8,
+                //        (val * 255.0 * (1.0 - a) + g * a) as u8,
+                //        (val * 255.0 * (1.0 - a) + b * a) as u8);
+                //} else {
+                *item = hsla_to_u32(
+                    // Hue: 
+                    //   0 -> 10: red
+                    //  10 -> 45: orange
+                    //  45 -> 65: yellow
+                    //  65 -> 90: lime
+                    //  90 -> 140: green
+                    // 140 -> 165: green-blue
+                    // 165 -> 190: light blue
+                    // 190 -> 250: dark blue
+                    // 250 -> 280: purple
+                    // 280 -> 345: pink
+                    // 345 -> 359: red
+                    (hue + 30.0 * val) / 255.0,
+                    // Saturation: 0 is grey/no colour, 0.7 is pastel, 
+                    // 1 is full colour
+                    0.8 + 0.2 * val,  // Sat, [0, 1]
+                    // Light: 0 is black, 0.5 is full colour, 1 is white
+                    1.0 - 0.6 * val,//.powf(2.5),  
+                    0.9
+                    );
+            }
         }
         window.get_keys().iter().for_each(|key|
             match key {
                 Key::A => {
-                    //param_pos.a += 0.1;
-                    //reset(&mut buffer, &mut attr_count, &mut max_points);
+                    for item in buffer.iter_mut() {
+                        *item = 0;
+                    }
+                    clifford.set_params(vec![
+                                        Some(clifford.a + (mode as f64) * 0.2),
+                                        None,
+                                        None,
+                                        None,
+                    ]);
+                    clifford.reset();
+                    prev_history_length = clifford.history.len();
+                    clifford.step(&mut x, &mut y, 1_000_000);
                 },
                 Key::B => {
-                    //param_pos.b += 0.1;
-                    //reset(&mut buffer, &mut attr_count, &mut max_points);
+                    for item in buffer.iter_mut() {
+                        *item = 0;
+                    }
+                    clifford.set_params(vec![
+                                        None,
+                                        Some(clifford.b + (mode as f64) * 0.2),
+                                        None,
+                                        None,
+                    ]);
+                    clifford.reset();
+                    prev_history_length = clifford.history.len();
+                    clifford.step(&mut x, &mut y, 1_000_000);
                 },
                 Key::C => {
-                    //param_pos.c += 0.1;
-                    //reset(&mut buffer, &mut attr_count, &mut max_points);
+                    for item in buffer.iter_mut() {
+                        *item = 0;
+                    }
+                    clifford.set_params(vec![
+                                        None,
+                                        None,
+                                        Some(clifford.c + (mode as f64) * 0.2),
+                                        None,
+                    ]);
+                    clifford.reset();
+                    prev_history_length = clifford.history.len();
+                    clifford.step(&mut x, &mut y, 1_000_000);
                 },
                 Key::D => {
-                    //param_pos.d += 0.1;
-                    //reset(&mut buffer, &mut attr_count, &mut max_points);
+                    for item in buffer.iter_mut() {
+                        *item = 0;
+                    }
+                    clifford.set_params(vec![
+                                        None,
+                                        None,
+                                        None,
+                                        Some(clifford.d + (mode as f64) * 0.2),
+                    ]);
+                    clifford.reset();
+                    prev_history_length = clifford.history.len();
+                    clifford.step(&mut x, &mut y, 1_000_000);
                 },
-                Key::H => {
-                    //show_hud = !show_hud;
+                Key::Minus => {
+                    mode = -1;
+                },
+                Key::Equal=> {
+                    mode = 1;
                 },
                 Key::S => {
-                    //param_pos.a = -1.032;
-                    //param_pos.b = -1.731;
-                    //param_pos.c = -0.286;
-                    //param_pos.d = 2.92;
+
                 },
                 Key::R => {
-                    rng = rand::thread_rng();
+                    hue = rng.gen_range(0.0..230.0);
+                    for item in buffer.iter_mut() {
+                        *item = 0;
+                    }
                     clifford.set_params(vec![
                                Some(rng.gen_range(-5.0..5.0)),
                                Some(rng.gen_range(-5.0..5.0)),
-                               None,
-                               None,
+                               Some(rng.gen_range(-5.0..5.0)),
+                               Some(rng.gen_range(-5.0..5.0)),
                     ]);
-                    //clifford.reset();
+                    clifford.reset();
+                    prev_history_length = clifford.history.len();
+                    clifford.step(&mut x, &mut y, 1_000_000);
                 },
                 _ => (),
             }

@@ -38,6 +38,8 @@ pub trait Attractor {
 
     fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64>;
 
+    fn reset(&mut self);
+
     /// Save the attractor to a file.
     ///
     /// The attractor's name, it's parameters, and every coordinate taken so far is saved to the
@@ -89,7 +91,7 @@ pub struct CliffordAttractor {
     /// The maximum y value, calculated as: `max(sin()) + |d| * max(cos()) ==  1.0 + d.abs()`
     ymax: f64,
     /// Store all the previously visited points in the history vector
-    history: Vec<Vec<f64>>,
+    pub history: Vec<Vec<f64>>,
 }
 
 impl Attractor for CliffordAttractor {
@@ -133,6 +135,10 @@ impl Attractor for CliffordAttractor {
             *y = (self.b * *x).sin() + self.d * (self.b * *y).cos();
             self.history.push(vec![ *x, *y ]);
         }
+    }
+
+    fn reset(&mut self) {
+        self.history =  vec![vec![0.0, 0.0]];
     }
 
 
@@ -228,13 +234,13 @@ impl Attractor for CliffordAttractor {
 /// Which is similar to the Clifford Attractor, but without scaling constants on the second term.
 pub struct DeJongAttractor {
     /// Parameter a
-    a: f64,
+    pub a: f64,
     /// Parameter b
-    b: f64,
+    pub b: f64,
     /// Parameter c
-    c: f64,
+    pub c: f64,
     /// Parameter d
-    d: f64,
+    pub d: f64,
     /// The minimum x value, which is always -2 for DeJong attractors
     xmin: f64,
     /// The maximum x value, which is always 2 for DeJong attractors
@@ -244,7 +250,7 @@ pub struct DeJongAttractor {
     /// The maximum y value, which is always 2 for DeJong attractors
     ymax: f64,
     /// Store all the previously visited points in the history vector
-    history: Vec<Vec<f64>>,
+    pub history: Vec<Vec<f64>>,
 }
 
 impl Attractor for DeJongAttractor {
@@ -290,6 +296,9 @@ impl Attractor for DeJongAttractor {
         }
     }
 
+    fn reset(&mut self) {
+        self.history =  vec![vec![0.0, 0.0]];
+    }
 
     /// Set the parameters a, b, c, d of the DeJong attractor and recalculate the x, y min and max
     /// values as needed.
