@@ -27,7 +27,7 @@ pub trait Attractor {
 
     /// Given an xy position, mutate x and y to be the next position based on the Attractor's
     /// formula. Do this for `num_steps` steps, saving each step to `history`.
-    fn step(&mut self, x: &mut f64, y: &mut f64, num_steps: usize);
+    fn step(&mut self, num_steps: usize);
 
     /// Change the parameters of the Attractor.
     ///
@@ -83,6 +83,10 @@ pub struct CliffordAttractor {
     pub c: f64,
     /// Parameter d roughly dictates the min and max y values.
     pub d: f64,
+    /// The current x value.
+    pub x: f64,
+    /// The current y value.
+    pub y: f64,
     /// The minimum x value, calculated as: `min(sin()) - |c| * min(cos()) == -1.0 - c.abs()`
     xmin: f64,
     /// The maximum x value, calculated as: `max(sin()) + |c| * max(cos()) ==  1.0 + c.abs()`
@@ -113,6 +117,8 @@ impl Attractor for CliffordAttractor {
             b: params[1],
             c: params[2],
             d: params[3],
+            x: 0.0,
+            y: 0.0,
             xmin: -1.0 - params[2].abs(), // min(sin()) - |c| * min(cos())
             xmax:  1.0 + params[2].abs(), // max(sin()) + |c| * max(cos())
             ymin: -1.0 - params[3].abs(), // min(sin()) - |d| * min(cos())
@@ -130,12 +136,16 @@ impl Attractor for CliffordAttractor {
     /// The `num_steps` variable determines how many times this recurrent equation is evaluated. The x
     /// and y values for each individual iteration can be retrieved from the `.history` vector
     /// variable.
-    fn step(&mut self, x: &mut f64, y: &mut f64, num_steps: usize) {
+    fn step(&mut self, num_steps: usize) {
+        let mut xx = self.x.clone();
+        let mut yy = self.y.clone();
         for _ in 1..num_steps {
-            *x = (self.a * *y).sin() + self.c * (self.a * *x).cos();
-            *y = (self.b * *x).sin() + self.d * (self.b * *y).cos();
-            self.history.push(vec![ *x, *y ]);
+            xx = (self.a * yy).sin() + self.c * (self.a * xx).cos();
+            yy = (self.b * xx).sin() + self.d * (self.b * yy).cos();
+            self.history.push(vec![ xx, yy ]);
         }
+        self.x = xx;
+        self.y = yy;
     }
 
     fn reset(&mut self) {
@@ -254,6 +264,10 @@ pub struct DeJongAttractor {
     pub c: f64,
     /// Parameter d
     pub d: f64,
+    /// The current x value.
+    pub x: f64,
+    /// The current y value.
+    pub y: f64,
     /// The minimum x value, which is always -2 for DeJong attractors
     xmin: f64,
     /// The maximum x value, which is always 2 for DeJong attractors
@@ -284,6 +298,8 @@ impl Attractor for DeJongAttractor {
             b: params[1],
             c: params[2],
             d: params[3],
+            x: 0.0,
+            y: 0.0,
             xmin: -2.0, // min(sin()) - min(cos())
             xmax:  2.0, // max(sin()) + max(cos())
             ymin: -2.0, // min(sin()) - min(cos())
@@ -301,11 +317,11 @@ impl Attractor for DeJongAttractor {
     /// The `num_steps` variable determines how many times this recurrent equation is evaluated. The x
     /// and y values for each individual iteration can be retrieved from the `.history` vector
     /// variable.
-    fn step(&mut self, x: &mut f64, y: &mut f64, num_steps: usize) {
+    fn step(&mut self, num_steps: usize) {
         for _ in 1..num_steps {
-            *x = (self.a * *y).sin() - (self.b * *x).cos();
-            *y = (self.c * *x).sin() - (self.d * *y).cos();
-            self.history.push(vec![ *x, *y ]);
+            self.x = (self.a * self.y).sin() - (self.b * self.x).cos();
+            self.y = (self.c * self.x).sin() - (self.d * self.y).cos();
+            self.history.push(vec![ self.x, self.y ]);
         }
     }
 
