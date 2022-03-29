@@ -11,3 +11,4 @@ license = "GPL-3.0-only"
 [dependencies]
 rand = "0.8.0"
 minifb = "0.20.0"
+palette = "0.6.0"
