@@ -28,9 +28,151 @@ fn main() {
         WIDTH,
         HEIGHT,
         WindowOptions::default(),
-        ).unwrap_or_else(|e| {
-        panic!("{}", e);
-    });
+    ).unwrap_or_else(|e| { panic!("{}", e); });
+
+    let commands = vec![
+        Command { // Clifford A
+            keys: vec![Key::Key1],
+            action: Box::new(|clifford, _buffer, keys, _lch| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                clifford.set_params(vec![Some(clifford.a + 0.01 * sign), None, None, None]);
+                clifford.reset();
+                clifford.step(100_000);
+            }),
+            description: "Increase or decrease `clifford.a` by 0.01".to_string(),
+            enabled: true,
+        },
+        Command { // Clifford B
+            keys: vec![Key::Key2],
+            action: Box::new(|clifford, _buffer, keys, _lch| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                clifford.set_params(vec![None, Some(clifford.b + 0.01 * sign), None, None]);
+                clifford.reset();
+                clifford.step(100_000);
+            }),
+            description: "Increase or decrease `clifford.b` by 0.01".to_string(),
+            enabled: true,
+        },
+        Command { // Clifford C
+            keys: vec![Key::Key3],
+            action: Box::new(|clifford, _buffer, keys, _lch| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                clifford.set_params(vec![None, None, Some(clifford.c + 0.01 * sign), None]);
+                clifford.reset();
+                clifford.step(100_000);
+            }),
+            description: "Increase or decrease `clifford.c` by 0.01".to_string(),
+            enabled: true,
+        },
+        Command { // Clifford D
+            keys: vec![Key::Key4],
+            action: Box::new(|clifford, _buffer, keys, _lch| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                clifford.set_params(vec![None, None, None, Some(clifford.d + 0.01 * sign)]);
+                clifford.reset();
+                clifford.step(100_000);
+            }),
+            description: "Increase or decrease `clifford.d` by 0.01".to_string(),
+            enabled: true,
+        },
+        Command { // Light Intercept
+            keys: vec![Key::Q],
+            action: Box::new(|clifford, _buffer, keys, lch| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                lch.light_intercept += 0.05 * sign;
+                println!("{:#}", lch);
+                clifford.step(1);
+            }),
+            description: "Increase or decrease the LCH light intercept by 0.05".to_string(),
+            enabled: true,
+        },
+        Command { // Light Slope
+            keys: vec![Key::A],
+            action: Box::new(|clifford, _buffer, keys, lch| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                lch.light_slope += 0.05 * sign;
+                println!("{:#}", lch);
+                clifford.step(1);
+            }),
+            description: "Increase or decrease the LCH light slope by 0.05".to_string(),
+            enabled: true,
+        },
+        Command { // Chroma Intercept
+            keys: vec![Key::W],
+            action: Box::new(|clifford, _buffer, keys, lch| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                lch.chroma_intercept += 0.05 * sign;
+                println!("{:#}", lch);
+                clifford.step(1);
+            }),
+            description: "Increase or decrease the LCH chroma intercept by 0.05".to_string(),
+            enabled: true,
+        },
+        Command { // Chroma Slope
+            keys: vec![Key::S],
+            action: Box::new(|clifford, _buffer, keys, lch| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                lch.chroma_slope += 0.05 * sign;
+                println!("{:#}", lch);
+                clifford.step(1);
+            }),
+            description: "Increase or decrease the LCH chroma slope by 0.05".to_string(),
+            enabled: true,
+        },
+        Command { // Hue Intercept
+            keys: vec![Key::E],
+            action: Box::new(|clifford, _buffer, keys, lch| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                lch.hue_intercept += 0.05 * sign;
+                println!("{:#}", lch);
+                clifford.step(1);
+            }),
+            description: "Increase or decrease the LCH hue intercept by 0.05".to_string(),
+            enabled: true,
+        },
+        Command { // Hue Slope
+            keys: vec![Key::D],
+            action: Box::new(|clifford, _buffer, keys, lch| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                lch.hue_slope += 0.05 * sign;
+                println!("{:#}", lch);
+                clifford.step(1);
+            }),
+            description: "Increase or decrease the LCH hue slope by 0.05".to_string(),
+            enabled: true,
+        },
+        Command { 
+            keys: vec![Key::R],
+            action: Box::new(|clifford, buffer, keys, lch| {
+                for item in buffer.iter_mut() { *item = 0; }
+                let mut rng = rand::thread_rng();
+                clifford.set_params(vec![
+                                    Some(rng.gen_range(-2.0..2.0)),
+                                    Some(rng.gen_range(-2.0..2.0)),
+                                    Some(rng.gen_range(-2.0..2.0)),
+                                    Some(rng.gen_range(-2.0..2.0)),
+                ]);
+                clifford.reset();
+                clifford.step(50_000);
+            }),
+            description: "Randomize the Clifford parameters and re-run the attractor with these new parameters".to_string(),
+            enabled: true,
+        },
+        ];
+    println!("=== List of Commands ===");
+    for command in commands.iter() {
+        println!("`{:?}` => {}", command.keys, command.description);
+    }
+
+    // These parameters have been manually tuned
+    let mut lch = LchParams {
+        light_intercept:  0.0, // no touchie
+        light_slope: 1.0,
+        chroma_intercept: 1.5,
+        chroma_slope: 0.2,
+        hue_intercept: 0.45,
+        hue_slope: 0.15, // values over 0.5 give a bit of a blowout effect
+    };
 
 
     // While the window is open and we want to actually draw things
@@ -40,146 +182,30 @@ fn main() {
     clifford.step(FIRST_DRAW_SIZE);
     println!("done");
     let mut densities;
-    let mut hue = rng.gen_range(0.0..230.0);
-    while window.is_open() && !window.is_key_down(Key::Q) {
+    while window.is_open() && !window.is_key_down(Key::Escape) {
         // Then use those generated points to draw onto the buffer in 
         // the appropriate spaces
-        if clifford.history.len() < 11_100_000 {
-            prev_history_length = clifford.history.len();
-            clifford.step(&mut x, &mut y, 1_000_000);
+        if clifford.history.len() < 20_000_000 {
+            clifford.step(100_000);
         }
-        let has_new_content = prev_history_length != clifford.history.len();
-        let has_enough_new_content = clifford.history.len() % 500_000 == 0;
-        let is_first_draw = clifford.history.len() <= 2_100_000;
-
-        if has_new_content && (has_enough_new_content || is_first_draw) {
-            densities = clifford.get_densities(WIDTH, HEIGHT);
-            for (i, item) in buffer.iter_mut().enumerate() {
-                let val: f64 = densities[i];
-                //if show_hud {
-                //    let (a, r, g, b) = u32_to_argb(hud[i]);
-                //    let a: f64 = a as f64;
-                //    let r: f64 = r as f64;
-                //    let g: f64 = g as f64;
-                //    let b: f64 = b as f64;
-                //    *item = argb_to_u32(
-                //        255,
-                //        (val * 255.0 * (1.0 - a) + r * a) as u8,
-                //        (val * 255.0 * (1.0 - a) + g * a) as u8,
-                //        (val * 255.0 * (1.0 - a) + b * a) as u8);
-                //} else {
-                *item = hsla_to_u32(
-                    // Hue: 
-                    //   0 -> 10: red
-                    //  10 -> 45: orange
-                    //  45 -> 65: yellow
-                    //  65 -> 90: lime
-                    //  90 -> 140: green
-                    // 140 -> 165: green-blue
-                    // 165 -> 190: light blue
-                    // 190 -> 250: dark blue
-                    // 250 -> 280: purple
-                    // 280 -> 345: pink
-                    // 345 -> 359: red
-                    (hue + 30.0 * val) / 255.0,
-                    // Saturation: 0 is grey/no colour, 0.7 is pastel, 
-                    // 1 is full colour
-                    0.8 + 0.2 * val,  // Sat, [0, 1]
-                    // Light: 0 is black, 0.5 is full colour, 1 is white
-                    1.0 - 0.6 * val,//.powf(2.5),  
-                    0.9
-                    );
+        densities = clifford.get_densities(WIDTH, HEIGHT);
+        for (i, item) in buffer.iter_mut().enumerate() {
+            let val: f64 = densities[i];
+            *item = hsla_to_u32(
+                val * lch.hue_slope + lch.hue_intercept,
+                val * lch.chroma_slope + lch.chroma_intercept,
+                val.powf(0.3) * lch.light_slope + lch.light_intercept,
+                0.0,
+            );
+        }
+        let wind_keys = window.get_keys();
+        for cmd in &commands {
+            // check if the currently pressed keys match any of the commands' required keys
+            if cmd.keys.iter().all(|k| wind_keys.contains(k)) {
+                (cmd.action)(&mut clifford, &mut buffer, &wind_keys, &mut lch);
             }
         }
-        window.get_keys().iter().for_each(|key|
-            match key {
-                Key::A => {
-                    for item in buffer.iter_mut() {
-                        *item = 0;
-                    }
-                    clifford.set_params(vec![
-                                        Some(clifford.a + (mode as f64) * 0.2),
-                                        None,
-                                        None,
-                                        None,
-                    ]);
-                    clifford.reset();
-                    prev_history_length = clifford.history.len();
-                    clifford.step(&mut x, &mut y, 1_000_000);
-                },
-                Key::B => {
-                    for item in buffer.iter_mut() {
-                        *item = 0;
-                    }
-                    clifford.set_params(vec![
-                                        None,
-                                        Some(clifford.b + (mode as f64) * 0.2),
-                                        None,
-                                        None,
-                    ]);
-                    clifford.reset();
-                    prev_history_length = clifford.history.len();
-                    clifford.step(&mut x, &mut y, 1_000_000);
-                },
-                Key::C => {
-                    for item in buffer.iter_mut() {
-                        *item = 0;
-                    }
-                    clifford.set_params(vec![
-                                        None,
-                                        None,
-                                        Some(clifford.c + (mode as f64) * 0.2),
-                                        None,
-                    ]);
-                    clifford.reset();
-                    prev_history_length = clifford.history.len();
-                    clifford.step(&mut x, &mut y, 1_000_000);
-                },
-                Key::D => {
-                    for item in buffer.iter_mut() {
-                        *item = 0;
-                    }
-                    clifford.set_params(vec![
-                                        None,
-                                        None,
-                                        None,
-                                        Some(clifford.d + (mode as f64) * 0.2),
-                    ]);
-                    clifford.reset();
-                    prev_history_length = clifford.history.len();
-                    clifford.step(&mut x, &mut y, 1_000_000);
-                },
-                Key::Minus => {
-                    mode = -1;
-                },
-                Key::Equal=> {
-                    mode = 1;
-                },
-                Key::S => {
-
-                },
-                Key::R => {
-                    hue = rng.gen_range(0.0..230.0);
-                    for item in buffer.iter_mut() {
-                        *item = 0;
-                    }
-                    clifford.set_params(vec![
-                               Some(rng.gen_range(-5.0..5.0)),
-                               Some(rng.gen_range(-5.0..5.0)),
-                               Some(rng.gen_range(-5.0..5.0)),
-                               Some(rng.gen_range(-5.0..5.0)),
-                    ]);
-                    clifford.reset();
-                    prev_history_length = clifford.history.len();
-                    clifford.step(&mut x, &mut y, 1_000_000);
-                },
-                _ => (),
-            }
-        );
-        // We unwrap here as we want this code to exit if it fails. Real applications may want to handle this in a different way
-        window.update_with_buffer(&buffer, WIDTH, HEIGHT)
-            .unwrap();
-        }
+        window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
     }
 }
 
@@ -229,3 +255,49 @@ fn hsla_to_u32(h: f64, s: f64, l: f64, _a: f64) -> u32 {
 // TODO plot the keyframes as lines tracing the a,b,c,d parameters along the 
 // bottom of the screen
 
+/// A common format for commands so that a help file can be printed out easily in the format 
+/// `key` -> `description`.
+struct Command { 
+    /// The key which triggers the `action`.
+    keys: Vec<Key>,
+    /// A function called when `key` is pressed.
+    action: Box<dyn Fn(&mut CliffordAttractor, &mut Vec<u32>, &Vec<Key>, &mut LchParams) -> ()>,
+    /// A one-line description of what `action` does.
+    description: String,
+    /// `action` is only called if `key` is pressed and `enabled` is true.
+    enabled: bool,
+}
+
+
+/// Contains the constants that get multiplied by the value at each pixel in order to convert that
+/// scalar value to a color in LCH space. The conversion is done as:
+/// ``` 
+/// light_component  = val * light_slope  + light_intercept
+/// chroma_component = val * chroma_slope + chroma_intercept
+/// hue_component    = val * hue_slope    + hue_intercept
+/// ```
+/// For example
+struct LchParams {
+    light_intercept: f64,
+    /// Light -> 0.0 is black, 0.5 is full color, 1.0 is  white
+    light_slope: f64,
+    chroma_intercept: f64,
+    /// Chroma -> 0.0 is grey, 1.0 is full colourfulness
+    chroma_slope: f64,
+    hue_intercept: f64,
+    /// Hue -> 0.0 to 1.0 is: pink, red, orange, yellow, green, light blue, dark blue, purple, pink
+    hue_slope: f64,
+}
+
+impl Display for LchParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "LchParams:\n  light = val * {light_slope:+.4} + {light_intercept:+.4}\n  chroma = val * {chroma_slope:+.4} + {chroma_intercept:+.4}\n  hue = val * {hue_slope:+.4} + {hue_intercept:+.4}",
+               light_slope=self.light_slope,
+               light_intercept=self.light_intercept,
+               chroma_slope=self.chroma_slope,
+               chroma_intercept=self.chroma_intercept,
+               hue_slope=self.hue_slope,
+               hue_intercept=self.hue_intercept,
+        )
+    }
+}
