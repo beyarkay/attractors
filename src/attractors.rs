@@ -387,3 +387,46 @@ impl Attractor for DeJongAttractor {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use rand::Rng;
+    use test::Bencher;
+    use super::*;
+
+    #[bench]
+    fn bench_clifford_write_to_file_10k(b: &mut Bencher) {
+        let mut rng = rand::thread_rng();
+        let mut clifford: CliffordAttractor = CliffordAttractor::new(vec![
+            rng.gen_range(-2.0..2.0),
+            rng.gen_range(-2.0..2.0),
+            rng.gen_range(-1.0..1.0),
+            rng.gen_range(-1.0..1.0),
+        ]);
+
+        let fname = format!(
+            "cache/clifford/{}-a={}-b={}-c={}-d={}.tmp", 
+            CliffordAttractor::NAME, clifford.a, clifford.b, clifford.c, clifford.d
+        );
+
+        clifford.step(10_000);
+        b.iter(|| clifford.to_file(fname.to_string()));
+
+        // Remove the temporary files once complete
+        fs::remove_file(fname).expect("Failed to delete file");
+    }
+
+    #[bench]
+    fn bench_clifford_iterate_10k(b: &mut Bencher) {
+        let mut rng = rand::thread_rng();
+        let mut clifford: CliffordAttractor = CliffordAttractor::new(vec![
+            rng.gen_range(-2.0..2.0),
+            rng.gen_range(-2.0..2.0),
+            rng.gen_range(-1.0..1.0),
+            rng.gen_range(-1.0..1.0),
+        ]);
+        b.iter(|| clifford.step(10_000) );
+    }
+}
