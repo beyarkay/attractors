@@ -178,7 +178,6 @@ impl Attractor for CliffordAttractor {
             self.ymax =  1.0 + d.abs();
         }
         println!("{:#}", self);
-        // dbg!(self.a, self.b, self.c, self.d);
     }
 
     /// Given a certain `width` and `height` in pixels, return the density of the 

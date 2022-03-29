@@ -1,39 +1,30 @@
-// minifb is used for rendering the images
+#![feature(test)]
+extern crate test;
 extern crate minifb;
-use minifb::{Key, Window, WindowOptions};
-
-// attractors.rs contains definitions of various strange attractors
 mod attractors;
-use crate::attractors::*;
+use std::fmt::Display;
 
-// Everything good starts with something random
+use crate::attractors::*;
+use minifb::{Key, Window, WindowOptions};
+use palette::{FromColor, Lch, Srgb};
 use rand::Rng;
 
-const WIDTH: usize = 1700;
-const HEIGHT: usize = 1050;
+const WIDTH: usize = 900;
+const HEIGHT: usize = 900;
+const FIRST_DRAW_SIZE: usize = 9_000_000;
 
 fn main() {
-    let mut mode: i8 = 1;
-    // Write a CliffordAttractor to file
-    let mut rng = rand::thread_rng();
-    let params = vec![
-                  rng.gen_range(-2.0..2.0),
-                  rng.gen_range(-2.0..2.0),
-                  -1.0, 
-                  -1.0
-    ];
-    let mut clifford: CliffordAttractor = CliffordAttractor::new(params);
-    //clifford.to_file(format!(
-    //        "cache/clifford/{}-a={}-b={}-c={}-d={}.txt", 
-    //        CliffordAttractor::NAME, clifford.a, clifford.b, clifford.c, clifford.d
-    //).to_string());
+    let mut _mode: i8 = 1;
+    // Create parameters for the clifford attractor
+    let mut clifford: CliffordAttractor = CliffordAttractor::new(vec![ -1.4, 1.6, 1.0, 0.7 ]);
+    clifford.to_file(format!(
+            "cache/clifford/{}-a={}-b={}-c={}-d={}.txt", 
+            CliffordAttractor::NAME, clifford.a, clifford.b, clifford.c, clifford.d
+            ).to_string());
 
-    // Actually draw a Clifford attractor
     let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
-    //let mut hud: Vec<u32> = vec![0; WIDTH * HEIGHT];
-    //let mut show_hud: bool = false;
     let mut window = Window::new(
-        "Attractors (press q to quit)",
+        "Strange Attractors (hold esc to exit)",
         WIDTH,
         HEIGHT,
         WindowOptions::default(),
@@ -41,18 +32,12 @@ fn main() {
         panic!("{}", e);
     });
 
-    // Limit to max ~60 fps update rate
-    //window.limit_update_rate(Some(std::time::Duration::from_micros(16600)));
 
-    // The attractor is recurrent, so set (0,0) to be the starting point
-    let mut x = 0.0;
-    let mut y = 0.0;
     // While the window is open and we want to actually draw things
     // Fewer steps => better responsiveness to keypresses, but 
     // slower generation overall
     print!("Stepping...");
-    let mut prev_history_length = clifford.history.len();
-    clifford.step(&mut x, &mut y, 1_000_000);
+    clifford.step(FIRST_DRAW_SIZE);
     println!("done");
     let mut densities;
     let mut hue = rng.gen_range(0.0..230.0);
@@ -196,43 +181,14 @@ fn main() {
             .unwrap();
         }
     }
-
-
-//fn reset(buffer: &mut Vec<u32>, attr_count: &mut Vec<u32>, max_points: &mut u32) {
-//    *max_points = 0;
-//    *attr_count = vec![0; attr_count.len()];
-//    *buffer = vec![0; buffer.len()];
-//}
-
-//fn count_to_brightness(count: u32, max_points: u32, bias_towards_one: f64) -> f64 {
-//    // short-circuit for common situations, to avoid floating point division
-//    if count == 0 {
-//        return 0.0;
-//    } else if count == max_points {
-//        return 1.0;
-//    }
-//    // val is in the range (0,1)
-//    let val: f64 = count as f64 / max_points as f64;
-//    // Values closer to 1 look better, so raise x to the power
-//    // of 1/bias_towards_one to get a curve that's biased towards 1
-//    // https://www.desmos.com/calculator/ksrfppmuab 
-//    return val.powf(1.0/bias_towards_one);
-//}
-
-//fn u32_to_argb(i: u32) -> (u8, u8, u8, u8) {
-//    let a: u8 = ((i >> 24) & 0x0000_00FF).try_into().unwrap();
-//    let r: u8 = ((i >> 16) & 0x0000_00FF).try_into().unwrap();
-//    let g: u8 = ((i >>  8) & 0x0000_00FF).try_into().unwrap();
-//    let b: u8 = ((i      ) & 0x0000_00FF).try_into().unwrap();
-//    
-//    return (a, r, g, b);
-//}
+}
 
 fn argb_to_u32(a: u8, r: u8, g: u8, b: u8) -> u32 {
     let (a, r, g, b) = (a as u32, r as u32, g as u32, b as u32);
     (a << 24) | (r << 16) | (g << 8) | b
 }
 
+/// Convert a Hue Saturation Light Alpha colour to a bit-packed u32. Alpha is currently ignored.
 fn hsla_to_u32(h: f64, s: f64, l: f64, _a: f64) -> u32 {
     // Converted to rust from JS taken from:
     // https://stackoverflow.com/a/9493060
@@ -272,30 +228,4 @@ fn hsla_to_u32(h: f64, s: f64, l: f64, _a: f64) -> u32 {
 
 // TODO plot the keyframes as lines tracing the a,b,c,d parameters along the 
 // bottom of the screen
-//fn _plot_keyframes(_keyframes: Vec<ParamPosition>, _hud: &mut Vec<u32>) {
-//
-//}
-//fn circ(cx: isize, cy: isize, r: isize, hud: &mut Vec<u32>) {
-//    for x in (cx-r)..(cx+r) {
-//        for y in (cy-r)..(cy+r) {
-//            if (x-cx).pow(2) + (y-cy).pow(2) <= r * r {
-//                let i = x as usize + y as usize * WIDTH;
-//                hud[i] = argb_to_u32(255, 255, 255, 255);
-//            }
-//        }
-//    }
-//}
-//
-//fn line(x1: usize, y1: usize, x2: usize, y2: usize, hud: &mut Vec<u32>) {
-//    let num_blocks = cmp::max(
-//        (x1 as isize - x2 as isize).abs(), 
-//        (y1 as isize - y2 as isize).abs());
-//    for i in 0..num_blocks {
-//        let t = i as f64 / num_blocks as f64;
-//        let x0 = (x1 as f64 + t * (x2 as f64 - x1 as f64)) as usize;
-//        let y0 = (y1 as f64 + t * (y2 as f64 - y1 as f64)) as usize;
-//        let i = x0 + y0 * WIDTH;
-//        hud[i] = argb_to_u32(255, 255, 255, 255);
-//    }
-//}
 
