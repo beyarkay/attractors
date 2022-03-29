@@ -200,7 +200,7 @@ impl Attractor for CliffordAttractor {
 
         // First loop over the history, flooring all the values to find
         // a histogram of how many times the attractor hit each xy point
-        for pos in &mut self.history {
+        for pos in self.history.iter() {
             let x = (width as f64 * (pos[0] - self.xmin) / xrange).floor() as usize;
             let y = (height as f64 * (pos[1] - self.ymin) / yrange).floor() as usize;
             let i = x + y * width;
