@@ -13,7 +13,7 @@
 /// - [Catrián Attractors](http://paulbourke.net/fractals/JuanCatrian/)
 /// - [Burke-Shaw Attractors](http://paulbourke.net/fractals/burkeshaw/)
 /// - [Yu-Wang Attractors](http://paulbourke.net/fractals/yuwang/)
-use std::io::Write;
+use std::{io::Write, fmt::{Display, self}};
 pub trait Attractor {
     /// A name for the attractor matching [a-zA-Z]+, used when saving a sequence of points to file
     const NAME: &'static str;
@@ -73,6 +73,7 @@ pub trait Attractor {
 /// x_new = sin(a * y) + c * cos(a * x)
 /// y_new = sin(b * x) + d * cos(b * y)
 /// ```
+#[derive(Debug)]
 pub struct CliffordAttractor {
     /// Parameter a is only used in calculating the new x value.
     pub a: f64,
@@ -166,7 +167,8 @@ impl Attractor for CliffordAttractor {
             self.ymin = -1.0 - d.abs();
             self.ymax =  1.0 + d.abs();
         }
-        dbg!(self.a, self.b, self.c, self.d);
+        println!("{:#}", self);
+        // dbg!(self.a, self.b, self.c, self.d);
     }
 
     /// Given a certain `width` and `height` in pixels, return the density of the 
@@ -220,6 +222,17 @@ impl Attractor for CliffordAttractor {
             let position: String = format!("{}:{},{}\n", i, item[0], item[1]);
             file.write_all(position.as_bytes()).expect("Failed to write position to file.");
         }
+    }
+}
+
+impl Display for CliffordAttractor {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Clifford Attractor:\n  x_new = sin({a:+.4} * y) + {c:+.4} * cos({a:+.4} * x);\n  y_new = sin({b:+.4} * x) + {d:+.4} * cos({b:+.4} * y)",
+               a=self.a,
+               b=self.b,
+               c=self.c,
+               d=self.d,
+        )
     }
 }
 
