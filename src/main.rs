@@ -79,67 +79,67 @@ fn main() {
             keys: vec![Key::Q],
             action: Box::new(|clifford, _buffer, keys, lch| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                lch.light_intercept += 0.05 * sign;
+                lch.light_intercept += 0.01 * sign;
                 println!("{:#}", lch);
                 clifford.step(1);
             }),
-            description: "Increase or decrease the LCH light intercept by 0.05".to_string(),
-            enabled: true,
+            description: "Increase or decrease the LCH light intercept by 0.01".to_string(),
+            enabled: false,
         },
         Command { // Light Slope
             keys: vec![Key::A],
             action: Box::new(|clifford, _buffer, keys, lch| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                lch.light_slope += 0.05 * sign;
+                lch.light_slope += 0.01 * sign;
                 println!("{:#}", lch);
                 clifford.step(1);
             }),
-            description: "Increase or decrease the LCH light slope by 0.05".to_string(),
-            enabled: true,
+            description: "Increase or decrease the LCH light slope by 0.01".to_string(),
+            enabled: false,
         },
         Command { // Chroma Intercept
             keys: vec![Key::W],
             action: Box::new(|clifford, _buffer, keys, lch| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                lch.chroma_intercept += 0.05 * sign;
+                lch.chroma_intercept += 0.01 * sign;
                 println!("{:#}", lch);
                 clifford.step(1);
             }),
-            description: "Increase or decrease the LCH chroma intercept by 0.05".to_string(),
-            enabled: true,
+            description: "Increase or decrease the LCH chroma intercept by 0.01".to_string(),
+            enabled: false,
         },
         Command { // Chroma Slope
             keys: vec![Key::S],
             action: Box::new(|clifford, _buffer, keys, lch| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                lch.chroma_slope += 0.05 * sign;
+                lch.chroma_slope += 0.01 * sign;
                 println!("{:#}", lch);
                 clifford.step(1);
             }),
-            description: "Increase or decrease the LCH chroma slope by 0.05".to_string(),
-            enabled: true,
+            description: "Increase or decrease the LCH chroma slope by 0.01".to_string(),
+            enabled: false,
         },
         Command { // Hue Intercept
             keys: vec![Key::E],
             action: Box::new(|clifford, _buffer, keys, lch| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                lch.hue_intercept += 0.05 * sign;
+                lch.hue_intercept += 0.01 * sign;
                 println!("{:#}", lch);
                 clifford.step(1);
             }),
-            description: "Increase or decrease the LCH hue intercept by 0.05".to_string(),
+            description: "Increase or decrease the LCH hue intercept by 0.01".to_string(),
             enabled: true,
         },
         Command { // Hue Slope
             keys: vec![Key::D],
             action: Box::new(|clifford, _buffer, keys, lch| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                lch.hue_slope += 0.05 * sign;
+                lch.hue_slope += 0.01 * sign;
                 println!("{:#}", lch);
                 clifford.step(1);
             }),
-            description: "Increase or decrease the LCH hue slope by 0.05".to_string(),
-            enabled: true,
+            description: "Increase or decrease the LCH hue slope by 0.01".to_string(),
+            enabled: false,
         },
         Command { 
             keys: vec![Key::R],
@@ -147,10 +147,10 @@ fn main() {
                 for item in buffer.iter_mut() { *item = 0; }
                 let mut rng = rand::thread_rng();
                 clifford.set_params(vec![
-                                    Some(rng.gen_range(-2.0..2.0)),
-                                    Some(rng.gen_range(-2.0..2.0)),
-                                    Some(rng.gen_range(-2.0..2.0)),
-                                    Some(rng.gen_range(-2.0..2.0)),
+                                    Some(rng.gen_range(-4.0..4.0)),
+                                    Some(rng.gen_range(-4.0..4.0)),
+                                    Some(rng.gen_range(-4.0..4.0)),
+                                    Some(rng.gen_range(-4.0..4.0)),
                 ]);
                 clifford.reset();
                 clifford.step(50_000);
@@ -201,7 +201,7 @@ fn main() {
         let wind_keys = window.get_keys();
         for cmd in &commands {
             // check if the currently pressed keys match any of the commands' required keys
-            if cmd.keys.iter().all(|k| wind_keys.contains(k)) {
+            if cmd.enabled && cmd.keys.iter().all(|k| wind_keys.contains(k)) {
                 (cmd.action)(&mut clifford, &mut buffer, &wind_keys, &mut lch);
             }
         }
