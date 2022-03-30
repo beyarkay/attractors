@@ -97,6 +97,8 @@ pub struct CliffordAttractor {
     ymax: f64,
     /// Store all the previously visited points in the history vector
     pub history: Vec<Vec<f64>>,
+    /// Store all previous parameter values in the param history
+    pub param_history: Vec<Vec<f64>>,
 }
 
 impl Attractor for CliffordAttractor {
@@ -123,7 +125,8 @@ impl Attractor for CliffordAttractor {
             xmax:  1.0 + params[2].abs(), // max(sin()) + |c| * max(cos())
             ymin: -1.0 - params[3].abs(), // min(sin()) - |d| * min(cos())
             ymax:  1.0 + params[3].abs(), // max(sin()) + |d| * max(cos())
-            history: vec![vec![0.0, 0.0]]
+            history: vec![vec![0.0, 0.0]],
+            param_history: vec![params]
         }
     }
 
@@ -149,7 +152,8 @@ impl Attractor for CliffordAttractor {
     }
 
     fn reset(&mut self) {
-        self.history =  vec![vec![0.0, 0.0]];
+        self.history = vec![vec![0.0, 0.0]];
+        // self.param_history = vec![vec![self.a, self.b, self.c, self.d]];
     }
 
 
@@ -177,6 +181,7 @@ impl Attractor for CliffordAttractor {
             self.ymin = -1.0 - d.abs();
             self.ymax =  1.0 + d.abs();
         }
+        self.param_history.push(vec![self.a, self.b, self.c, self.d]);
         println!("{:#}", self);
     }
 
@@ -236,11 +241,13 @@ impl Attractor for CliffordAttractor {
 
 impl Display for CliffordAttractor {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Clifford Attractor:\n  x_new = sin({a:+.4} * y) + {c:+.4} * cos({a:+.4} * x);\n  y_new = sin({b:+.4} * x) + {d:+.4} * cos({b:+.4} * y)",
-               a=self.a,
-               b=self.b,
-               c=self.c,
-               d=self.d,
+        write!(f, "Clifford Attractor (history={}, param_history={}):\n  x_new = sin({a:+.4} * y) + {c:+.4} * cos({a:+.4} * x);\n  y_new = sin({b:+.4} * x) + {d:+.4} * cos({b:+.4} * y)",
+        self.history.len(),
+        self.param_history.len(),
+        a=self.a,
+        b=self.b,
+        c=self.c,
+        d=self.d,
         )
     }
 }
