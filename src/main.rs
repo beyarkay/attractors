@@ -9,8 +9,18 @@ use minifb::{Key, Window, WindowOptions};
 use palette::{FromColor, Lch, Srgb};
 use rand::Rng;
 
-const WIDTH: usize = 900;
-const HEIGHT: usize = 900;
+const A2_300_DPI_WIDTH: usize = 7016;
+const A2_300_DPI_HEIGHT: usize = 4961;
+const A3_300_DPI_WIDTH: usize =  4961;
+const A3_300_DPI_HEIGHT: usize =  3508;
+const A4_300_DPI_WIDTH: usize =  3508;
+const A4_300_DPI_HEIGHT: usize =  2480;
+const DIAG_WIDTH: usize = 300;
+const DIAG_HEIGHT: usize = 100;
+const SCREEN_WIDTH: usize = 900;
+const SCREEN_HEIGHT: usize = 900;
+const WIDTH: usize = SCREEN_WIDTH;
+const HEIGHT: usize = SCREEN_HEIGHT;
 const FIRST_DRAW_SIZE: usize = 9_000_000;
 
 fn main() {
