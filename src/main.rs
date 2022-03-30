@@ -6,7 +6,6 @@ use std::fmt::Display;
 
 use crate::attractors::*;
 use minifb::{Key, Window, WindowOptions};
-use palette::{FromColor, Lch, Srgb};
 use rand::Rng;
 
 const A2_300_DPI_WIDTH: usize = 7016;
@@ -225,7 +224,7 @@ fn main() {
                     ]);
                 };
                 clifford.reset();
-                clifford.step(50_000);
+                clifford.step(1_000_000);
             }),
             description: "Randomize the Clifford parameters and re-run the attractor with these new parameters".to_string(),
             enabled: true,
@@ -358,16 +357,16 @@ fn hsla_to_u32(h: f64, s: f64, l: f64, _a: f64) -> u32 {
     return argb_to_u32(a, r, g, b)
 }
 
-/// Convert CIE Light Chroma Hue to a bit-packed u32 value. https://css.land/lch/
-/// l, c, and h are all within [0, 1]
-/// Light -> 0.0 is black, 0.5 is full color, 1.0 is  white
-/// Chroma -> 0.0 is grey, 1.0 is full colourfulness
-/// Hue -> 0.0 to 1.0 is: pink, red, orange, yellow, green, light blue, dark blue, purple, pink
-fn lch_to_u32(l: f64, c: f64, h: f64) -> u32 {
-    let lch = Lch::new(l * 100.0, c * 132.0, h * 360.0);
-    let rgb = Srgb::from_color(lch);
-    return argb_to_u32(0, (rgb.red * 255.0) as u8, (rgb.green * 255.0) as u8, (rgb.blue * 255.0) as u8);
-}
+// /// Convert CIE Light Chroma Hue to a bit-packed u32 value. https://css.land/lch/
+// /// l, c, and h are all within [0, 1]
+// /// Light -> 0.0 is black, 0.5 is full color, 1.0 is  white
+// /// Chroma -> 0.0 is grey, 1.0 is full colourfulness
+// /// Hue -> 0.0 to 1.0 is: pink, red, orange, yellow, green, light blue, dark blue, purple, pink
+// fn lch_to_u32(l: f64, c: f64, h: f64) -> u32 {
+//     let lch = Lch::new(l * 100.0, c * 132.0, h * 360.0);
+//     let rgb = Srgb::from_color(lch);
+//     return argb_to_u32(0, (rgb.red * 255.0) as u8, (rgb.green * 255.0) as u8, (rgb.blue * 255.0) as u8);
+// }
 // TODO plot the keyframes as lines tracing the a,b,c,d parameters along the 
 // bottom of the screen
 
