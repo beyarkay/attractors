@@ -256,15 +256,20 @@ fn main() {
         hue_slope: 0.15, // values over 0.5 give a bit of a blowout effect
     };
 
+    let mut diagnostics = Window::new(
+        "Diagnostics",
+        DIAG_WIDTH,
+        DIAG_HEIGHT,
+        WindowOptions {
+            ..WindowOptions::default()
+        },
+    ).unwrap();
 
-    // While the window is open and we want to actually draw things
-    // Fewer steps => better responsiveness to keypresses, but 
-    // slower generation overall
-    print!("Stepping...");
     clifford.step(FIRST_DRAW_SIZE);
-    println!("done");
     let mut densities;
-    while window.is_open() && !window.is_key_down(Key::Escape) {
+    let mut diag_buf = vec![0u32; DIAG_WIDTH * DIAG_HEIGHT];
+    while (window.is_open() && !window.is_key_down(Key::Escape)) && 
+          (diagnostics.is_open() && !diagnostics.is_key_down(Key::Escape)) {
         // Then use those generated points to draw onto the buffer in 
         // the appropriate spaces
         if clifford.history.len() < 20_000_000 {
@@ -288,6 +293,25 @@ fn main() {
             }
         }
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
+        update_diagnostics(&mut diag_buf, &clifford);
+        diagnostics.update_with_buffer(&diag_buf, DIAG_WIDTH, DIAG_HEIGHT).unwrap();
+    }
+}
+
+fn update_diagnostics(diag_buf: &mut Vec<u32>, clifford: &CliffordAttractor) {
+    for (idx, param) in clifford.param_history.iter().enumerate() {
+        let a_in_bounds = -5.0 <= param[0] && param[0] < 5.0;
+        let b_in_bounds = -5.0 <= param[1] && param[1] < 5.0;
+        let c_in_bounds = -5.0 <= param[2] && param[2] < 5.0;
+        let d_in_bounds = -5.0 <= param[3] && param[3] < 5.0;
+        if  a_in_bounds && b_in_bounds && c_in_bounds && d_in_bounds {
+            let a = (param[0] + 5.0) / 10.0 * 100.0; // horizontal axis
+            let b = (param[1] + 5.0) / 10.0 * 100.0; // vertical axis
+            let c = ((param[2] + 5.0) / 10.0 * 200.0 + 50.0) as u8; // Red colour axis
+            let d = ((param[3] + 5.0) / 10.0 * 200.0 + 50.0) as u8; // Green color axis
+            let pos = b as usize * DIAG_WIDTH + a as usize;
+            diag_buf[pos] = argb_to_u32(0, c, d, 255);
+        }
     }
 }
 
