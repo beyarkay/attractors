@@ -204,17 +204,26 @@ fn main() {
             description: "Increase or decrease the LCH hue slope by 0.01".to_string(),
             enabled: false,
         },
-        Command { 
+        Command { // Reset and randomise
             keys: vec![Key::R],
-            action: Box::new(|clifford, buffer, keys, lch| {
+            action: Box::new(|clifford, buffer, keys, _lch| {
                 for item in buffer.iter_mut() { *item = 0; }
-                let mut rng = rand::thread_rng();
-                clifford.set_params(vec![
-                                    Some(rng.gen_range(-4.0..4.0)),
-                                    Some(rng.gen_range(-4.0..4.0)),
-                                    Some(rng.gen_range(-4.0..4.0)),
-                                    Some(rng.gen_range(-4.0..4.0)),
-                ]);
+                if keys.contains(&Key::LeftShift) && clifford.param_history.len() > 0 { 
+                    clifford.set_params( clifford.param_history.iter().nth_back(2).expect("param history was empty")
+                            .clone()
+                            .into_iter()
+                            .map(|p| Some(p))
+                            .collect()
+                    );
+                } else { 
+                    let mut rng = rand::thread_rng();
+                    clifford.set_params(vec![
+                                        Some(rng.gen_range(-4.0..4.0)),
+                                        Some(rng.gen_range(-4.0..4.0)),
+                                        Some(rng.gen_range(-4.0..4.0)),
+                                        Some(rng.gen_range(-4.0..4.0)),
+                    ]);
+                };
                 clifford.reset();
                 clifford.step(50_000);
             }),
