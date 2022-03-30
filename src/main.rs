@@ -41,15 +41,68 @@ fn main() {
     ).unwrap_or_else(|e| { panic!("{}", e); });
 
     let commands = vec![
-        Command { // Clifford A
-            keys: vec![Key::Key1],
+        Command { // j -> a--; J -> b--;
+            keys: vec![Key::J],
             action: Box::new(|clifford, _buffer, keys, _lch| {
-                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                clifford.set_params(vec![Some(clifford.a + 0.01 * sign), None, None, None]);
+                if keys.contains(&Key::LeftShift) {
+                    // b--
+                    clifford.set_params(vec![None, Some(clifford.b - 0.01), None, None]);
+                } else {
+                    // a--
+                    clifford.set_params(vec![Some(clifford.a - 0.01), None, None, None]);
+                };
                 clifford.reset();
                 clifford.step(100_000);
             }),
-            description: "Increase or decrease `clifford.a` by 0.01".to_string(),
+            description: "j -> a--; J -> b--;".to_string(),
+            enabled: true,
+        },
+        Command { // k -> a++; K -> b++;
+            keys: vec![Key::K],
+            action: Box::new(|clifford, _buffer, keys, _lch| {
+                if keys.contains(&Key::LeftShift) {
+                    // b++
+                    clifford.set_params(vec![None, Some(clifford.b + 0.01), None, None]);
+                } else {
+                    // a++
+                    clifford.set_params(vec![Some(clifford.a + 0.01), None, None, None]);
+                };
+                clifford.reset();
+                clifford.step(100_000);
+            }),
+            description: "k -> a++; K -> b++;".to_string(),
+            enabled: true,
+        },
+        Command { // h -> c--; H -> d--;
+            keys: vec![Key::H],
+            action: Box::new(|clifford, _buffer, keys, _lch| {
+                if keys.contains(&Key::LeftShift) {
+                    // c--
+                    clifford.set_params(vec![None, None, Some(clifford.c - 0.01), None]);
+                } else {
+                    // d--
+                    clifford.set_params(vec![None, None, None, Some(clifford.d - 0.01)]);
+                };
+                clifford.reset();
+                clifford.step(100_000);
+            }),
+            description: "h -> c--; H -> d--;".to_string(),
+            enabled: true,
+        },
+        Command { // l -> c++; L -> d++;
+            keys: vec![Key::L],
+            action: Box::new(|clifford, _buffer, keys, _lch| {
+                if keys.contains(&Key::LeftShift) {
+                    // c++
+                    clifford.set_params(vec![None, None, Some(clifford.c + 0.01), None]);
+                } else {
+                    // d++
+                    clifford.set_params(vec![None, None, None, Some(clifford.d + 0.01)]);
+                };
+                clifford.reset();
+                clifford.step(100_000);
+            }),
+            description: "l -> c++; L -> d++;".to_string(),
             enabled: true,
         },
         Command { // Clifford B
