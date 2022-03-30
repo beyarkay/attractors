@@ -230,6 +230,16 @@ fn main() {
             description: "Randomize the Clifford parameters and re-run the attractor with these new parameters".to_string(),
             enabled: true,
         },
+        Command { // Print to disc
+            keys: vec![Key::P],
+            action: Box::new(|clifford, _buffer, _keys, _lch| {
+                let filename = format!("cache/clifford/a={}_b={}_c={}_d={}_iters={}.txt", clifford.a, clifford.b, clifford.c, clifford.d, clifford.history.len());
+                println!("Saving data to {}", filename);
+                clifford.to_file(filename);
+            }),
+            description: "Print the attractor to disc".to_string(),
+            enabled: true,
+        },
         ];
     println!("=== List of Commands ===");
     for command in commands.iter() {
