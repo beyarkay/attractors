@@ -224,6 +224,28 @@ fn main() {
             description: "Print the attractor to disc".to_string(),
             enabled: true,
         },
+        Command { // Change from black bg to white bg
+            keys: vec![Key::I],
+            action: Box::new(|clifford, _buffer, _keys, lch| {
+                if lch.light_intercept == 1.0 {
+                    // Dark background
+                    lch.light_intercept = 0.0;
+                    lch.light_slope = 1.0;
+                    lch.chroma_intercept = 1.5; 
+                    lch.chroma_slope = 0.2; 
+                } else {
+                    // Light background
+                    lch.light_intercept = 1.0;
+                    lch.light_slope = -1.0;
+                    lch.chroma_intercept = 0.7;
+                    lch.chroma_slope = 1.5; 
+                }
+                println!("Inverted colours:\n{:#}", lch);
+                clifford.step(1);
+            }),
+            description: "Increase or decrease the LCH hue slope by 0.01".to_string(),
+            enabled: true,
+        },
         ];
     println!("=== List of Commands ===");
     for command in commands.iter() {
