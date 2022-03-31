@@ -249,7 +249,8 @@ fn main() {
         ];
     println!("=== List of Commands ===");
     for command in commands.iter() {
-        println!("`{:?}` => {}", command.keys, command.description);
+        println!("`{:?}` => {} (enabled: {})",
+            command.keys, command.description, command.enabled);
     }
 
     // These parameters have been manually tuned
