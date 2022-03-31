@@ -5,6 +5,7 @@ mod attractors;
 use std::fmt::Display;
 
 use crate::attractors::*;
+use image::{RgbImage, ImageBuffer};
 use minifb::{Key, Window, WindowOptions};
 use rand::Rng;
 
@@ -231,10 +232,27 @@ fn main() {
         },
         Command { // Print to disc
             keys: vec![Key::P],
-            action: Box::new(|clifford, _buffer, _keys, _lch| {
-                let filename = format!("cache/clifford/a={}_b={}_c={}_d={}_iters={}.txt", clifford.a, clifford.b, clifford.c, clifford.d, clifford.history.len());
+            action: Box::new(|clifford, _buffer, _keys, lch| {
+                let filename = format!("cache/clifford/a={}_b={}_c={}_d={}_iters={}.png", clifford.a, clifford.b, clifford.c, clifford.d, clifford.history.len());
                 println!("Saving data to {}", filename);
-                clifford.to_file(filename);
+                let mut image: RgbImage = ImageBuffer::new(7000, 7000);
+                while clifford.history.len() < 10_000_000 {
+                    clifford.step(1_000_000);
+                }
+                let densities = clifford.get_densities(7000, 7000);
+                for (i, val) in densities.iter().enumerate() {
+                    let packed = hsla_to_u32(
+                        val * lch.hue_slope + lch.hue_intercept,
+                        val * lch.chroma_slope + lch.chroma_intercept,
+                        val.powf(0.3) * lch.light_slope + lch.light_intercept,
+                        0.0,
+                    );
+                    let x = i % 7000;
+                    let y = i / 7000;
+                    let (_a, r, g, b) = u32_to_argb(packed);
+                    image.put_pixel(x as u32, y as u32, image::Rgb([r, g, b]));
+                }
+                image.save(filename).unwrap();
             }),
             description: "Print the attractor to disc".to_string(),
             enabled: true,
@@ -312,6 +330,14 @@ fn update_diagnostics(diag_buf: &mut Vec<u32>, clifford: &CliffordAttractor) {
             diag_buf[pos] = argb_to_u32(0, c, d, 255);
         }
     }
+}
+
+fn u32_to_argb(packed: u32) -> (u8, u8, u8, u8) {
+    let a = ((0xFF_00_00_00 & packed) >> 24) as u8;
+    let r = ((0x00_FF_00_00 & packed) >> 16) as u8;
+    let g = ((0x00_00_FF_00 & packed) >> 8) as u8;
+    let b = (0x00_00_00_FF & packed) as u8;
+    return (a, r, g, b);
 }
 
 fn argb_to_u32(a: u8, r: u8, g: u8, b: u8) -> u32 {
