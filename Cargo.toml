@@ -11,4 +11,4 @@ license = "GPL-3.0-only"
 [dependencies]
 rand = "0.8.0"
 minifb = "0.20.0"
-image = "0.24.1"
+image = { version = "0.24.1", default-features = false, features = ["rgb", "png"] }
