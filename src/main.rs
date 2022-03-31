@@ -202,7 +202,7 @@ fn main() {
             keys: vec![Key::P],
             action: Box::new(|clifford, _buffer, _keys, lch| {
                 let filename = format!("cache/clifford/a={}_b={}_c={}_d={}_iters={}.png", clifford.a, clifford.b, clifford.c, clifford.d, clifford.history.len());
-                println!("Saving data to {}", filename);
+                print!("Saving data to {}...", filename);
                 let mut image: RgbImage = ImageBuffer::new(7000, 7000);
                 while clifford.history.len() < 10_000_000 {
                     clifford.step(1_000_000);
@@ -221,8 +221,9 @@ fn main() {
                     image.put_pixel(x as u32, y as u32, image::Rgb([r, g, b]));
                 }
                 image.save(filename).unwrap();
+                println!("done");
             }),
-            description: "Print the attractor to disc".to_string(),
+            description: "Save the attractor in high resolution to disc as png".to_string(),
             enabled: true,
         },
         Command { // Change from black bg to white bg
