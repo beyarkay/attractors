@@ -2,8 +2,9 @@
 extern crate test;
 extern crate minifb;
 mod attractors;
-use std::fmt::Display;
+use std::{fmt::Display, path::Path, fs::OpenOptions, io::BufWriter};
 
+use std::io::prelude::*;
 use crate::attractors::*;
 use image::{RgbImage, ImageBuffer};
 use minifb::{Key, Window, WindowOptions};
@@ -242,6 +243,31 @@ fn main() {
                 }
                 println!("Inverted colours:\n{:#}", lch);
                 clifford.step(1);
+            }),
+            description: "Increase or decrease the LCH hue slope by 0.01".to_string(),
+            enabled: true,
+        },
+        Command { // Mark the location as 'special'
+            keys: vec![Key::M],
+            action: Box::new(|clifford, _buffer, _keys, _lch| {
+                let filename = "cache/clifford/special.txt";
+                let file;
+                if !Path::new(filename).exists() {
+                    // If the file doesn't exist, create it and write the csv header line
+                    file = OpenOptions::new()
+                        .create_new(true)
+                        .write(true)
+                        .append(true)
+                        .open(filename)
+                        .expect("Failed to create new file");
+                } else {
+                    file = OpenOptions::new().append(true).open(filename).expect("Couldn't open file for appending");
+                }
+                let mut file = BufWriter::new(file);
+                writeln!(file, "a={},b={},c={},d={}", clifford.a, clifford.b, clifford.c, clifford.d).expect("Failed to write to file");
+                file.flush().expect("Failed to flush the BufWriter");
+
+                println!("Marked location as special: a={:<10.4}b={:<10.4}c={:<10.4}d={:<10.4}", clifford.a, clifford.b, clifford.c, clifford.d);
             }),
             description: "Increase or decrease the LCH hue slope by 0.01".to_string(),
             enabled: true,

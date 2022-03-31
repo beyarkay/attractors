@@ -1,3 +1,5 @@
 .DS_Store
 /target
-cache/
+cache/*/*.png
+cache/*/*.txt
+!cache/*/special.txt
