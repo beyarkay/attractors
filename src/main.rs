@@ -105,39 +105,6 @@ fn main() {
             description: "l -> c++; L -> d++;".to_string(),
             enabled: true,
         },
-        Command { // Clifford B
-            keys: vec![Key::Key2],
-            action: Box::new(|clifford, _buffer, keys, _lch| {
-                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                clifford.set_params(vec![None, Some(clifford.b + 0.01 * sign), None, None]);
-                clifford.reset();
-                clifford.step(100_000);
-            }),
-            description: "Increase or decrease `clifford.b` by 0.01".to_string(),
-            enabled: true,
-        },
-        Command { // Clifford C
-            keys: vec![Key::Key3],
-            action: Box::new(|clifford, _buffer, keys, _lch| {
-                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                clifford.set_params(vec![None, None, Some(clifford.c + 0.01 * sign), None]);
-                clifford.reset();
-                clifford.step(100_000);
-            }),
-            description: "Increase or decrease `clifford.c` by 0.01".to_string(),
-            enabled: true,
-        },
-        Command { // Clifford D
-            keys: vec![Key::Key4],
-            action: Box::new(|clifford, _buffer, keys, _lch| {
-                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                clifford.set_params(vec![None, None, None, Some(clifford.d + 0.01 * sign)]);
-                clifford.reset();
-                clifford.step(100_000);
-            }),
-            description: "Increase or decrease `clifford.d` by 0.01".to_string(),
-            enabled: true,
-        },
         Command { // Light Intercept
             keys: vec![Key::Q],
             action: Box::new(|clifford, _buffer, keys, lch| {
