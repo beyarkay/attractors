@@ -310,6 +310,7 @@ fn main() {
             clifford.step(100_000);
         }
         densities = clifford.get_densities(WIDTH, HEIGHT);
+        let avg_density = densities.iter().sum::<f64>() / densities.len() as f64;
         for (i, item) in buffer.iter_mut().enumerate() {
             let val: f64 = densities[i];
             *item = hsla_to_u32(
@@ -327,13 +328,13 @@ fn main() {
             }
         }
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
-        update_diagnostics(&mut diag_buf, &clifford);
+        update_diagnostics(&mut diag_buf, &clifford, avg_density);
         diagnostics.update_with_buffer(&diag_buf, DIAG_WIDTH, DIAG_HEIGHT).unwrap();
     }
 }
 
-fn update_diagnostics(diag_buf: &mut Vec<u32>, clifford: &CliffordAttractor) {
-    for (idx, param) in clifford.param_history.iter().enumerate() {
+fn update_diagnostics(diag_buf: &mut Vec<u32>, clifford: &CliffordAttractor, avg_density: f64) {
+    for param in clifford.param_history.iter() {
         let a_in_bounds = -5.0 <= param[0] && param[0] < 5.0;
         let b_in_bounds = -5.0 <= param[1] && param[1] < 5.0;
         let c_in_bounds = -5.0 <= param[2] && param[2] < 5.0;
@@ -347,6 +348,16 @@ fn update_diagnostics(diag_buf: &mut Vec<u32>, clifford: &CliffordAttractor) {
             diag_buf[pos] = argb_to_u32(0, c, d, 255);
         }
     }
+    let x = DIAG_WIDTH / 3 + (clifford.param_history.len() % ((DIAG_WIDTH * 2) / 3));
+    for y in 0..DIAG_HEIGHT {
+        let pos = y * DIAG_WIDTH + x as usize;
+        diag_buf[pos] = argb_to_u32(0, 0, 0, 0);
+    }
+    // Raise avg_density to the power of 0.3 because there are _loads_ of small values 
+    // (1e-3 < value < 1e-1) which are still meaningful but get lost
+    let y = (avg_density.powf(0.3) * DIAG_HEIGHT as f64 ) as usize;
+    let pos = y * DIAG_WIDTH + x as usize;
+    diag_buf[pos] = argb_to_u32(0, 255, 255, 255);
 }
 
 fn u32_to_argb(packed: u32) -> (u8, u8, u8, u8) {
