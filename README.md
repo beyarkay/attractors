@@ -1,20 +1,73 @@
 # Attractors
+A [Rust](https://www.rust-lang.org/) project to generate and explore [strange
+attractors](https://en.wikipedia.org/wiki/Attractor#Strange_attractor) visually
+and easily. The emphasis is on using strange attractors as an artistic medium,
+and not explicitly on the maths behind them (although the maths is
+unavoidable).
 
-![](img/clifford1.png)
-![](img/clifford2.png)
-![](img/clifford3.png)
-![](img/clifford4.png)
-![](img/clifford5.png)
+See below for example images of strange attractors to give you a feel for what
+they look like. After that is some info about getting started with the project
+and running the code to find your own. Following that is some more background
+info about strange attractors and the different types.
 
-### Generate, visualise, and explore strange attractor visually
+## Examples of strange attractors
+See more images in the [`imgs`](https://github.com/beyarkay/attractors/tree/main/img)
+directory. They're all very high resolution (about 7000 pixels on each side) so
+you can print them out at An size at 300 DPI.
 
-This repository is a work in progress, and will contain Rust code to:
+![](img/15.png)
+![](img/11_small.png)
 
-- generate strange attractors of various kinds,
-- visualise those attractors,
-- save images of the attractors,
-- create videos of the attractors, as one or more parameters vary,
-- and to 'explore' the parameter space of the attractor
+## Get started and making your own strange attractors
+
+Install the rust compiler and cargo by following the instructions at [install
+rust](https://www.rust-lang.org/tools/install) or by running the command: 
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Then clone this project: 
+
+```sh
+git clone https://github.com/beyarkay/attractors.git
+```
+
+Change directory and run the project in `--release` mode:
+```sh
+cd attractors && cargo run --release
+```
+The extra optimisations given by the `--release` flag are _really_ required for
+a smooth experience.
+
+There will be some console output explaining the available commands and what
+they do, and two windows should pop up: a small diagnostics window (which you
+can ignore) and a larger square window.
+
+Click on the square window to focus it. The attractor will automatically be
+drawn, and you can change the 4 parameters fed to the attractor (named a, b, c,
+d) with vim-like key bindings:
+```
+j -> decrease a; k -> increase a; 
+J -> decrease b; K -> increase b;
+h -> decrease c; l -> increase c; 
+H -> decrease d; L -> increase d;
+```
+
+Additionally, you can select a random set of parameters by pressing R:
+```
+`[R]` => Randomize the Clifford parameters and re-run the attractor with these new parameters
+```
+
+You can `print` off an attractor by pressing `p` which will save it as a `.png`
+in `cached/clifford/`.
+```
+`[P]` => Save the attractor in high resolution to disc as png (enabled: true)
+```
+
+You can also change the hue of the attractor by pressing `e` or `E`:
+```
+`[E]` => Increase or decrease the LCH hue intercept by 0.01 (enabled: true)
+```
 
 ## What are Strange Attractors
 Strange attractors are (usually) a recursive formula which take in a point in
@@ -44,34 +97,4 @@ See these links for examples of strange attractors.
 - [Catrián Attractors](http://paulbourke.net/fractals/JuanCatrian/)
 - [Burke-Shaw Attractors](http://paulbourke.net/fractals/burkeshaw/)
 - [Yu-Wang Attractors](http://paulbourke.net/fractals/yuwang/)
-
-## (Planned) Structure
-Generating the attractors takes a while, since often over 5 million points need
-to be calculated for a semi-decent image to make itself visible, and each
-generated point depends on the point that was generated before it, meaning that
-the operation can not be made concurrent.
-
-As the user explores the parameter space, the generated attractors should be
-cached as a text file of points, so that the attractor can be quickly retrieved
-if the user happens on that location in parameter space again. The name of the
-file should fully encapsulate the parameter set, so that files don't have to be
-opened in order to find the correct attractor.
-
-## Installation
-
-As this is unfinished, installation is not recommended. But if you must, then
-you'll have to install Rust, and then
-
-1. `git clone https://github.com/beyarkay/attractors.git`
-2. `cargo doc --open` to open up the documentation (it's comprehensive), or
-3. `cargo run` to execute the main body of the code.
-
-There's no guarantees (yet) of it working or even doing something you want it
-to do though.
-
-# TODO
-
-- Add images of attractors
-- Implement visualisations
-- Implement different attractor types
 
