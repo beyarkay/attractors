@@ -8,7 +8,7 @@ use std::{fmt::Display, path::Path, fs::OpenOptions, io::BufWriter};
 use std::io::{prelude::*, BufReader};
 use crate::attractors::*;
 use image::{RgbImage, ImageBuffer};
-use minifb::{Key, Window, WindowOptions};
+use minifb::{Key, Window, WindowOptions, clamp};
 use rand::Rng;
 
 const A2_300_DPI_WIDTH: usize = 7016;
@@ -17,6 +17,8 @@ const A3_300_DPI_WIDTH: usize =  4961;
 const A3_300_DPI_HEIGHT: usize =  3508;
 const A4_300_DPI_WIDTH: usize =  3508;
 const A4_300_DPI_HEIGHT: usize =  2480;
+const MAP_WIDTH: usize = 400;
+const MAP_HEIGHT: usize = 400;
 const DIAG_WIDTH: usize = 300;
 const DIAG_HEIGHT: usize = 100;
 const SCREEN_WIDTH: usize = 900;
@@ -303,15 +305,15 @@ fn main() {
         hue_slope: 0.15, // values over 0.5 give a bit of a blowout effect
     };
 
-    // TODO diagnostics should show 4 planes:
-    // +---------+
-    // | ab | ad |
-    // |----+----|
-    // | cb | cd |
-    // +---------+
-    // TODO on each plane, the coords should be coloured based on how 
-    // close they are to a marked location of interest as specified 
-    // in `cache/clifford/special.txt`.
+    let mut map_window = Window::new(
+        "Map",
+        MAP_WIDTH,
+        MAP_HEIGHT,
+        WindowOptions {
+            ..WindowOptions::default()
+        },
+    ).unwrap();
+
     let mut diagnostics = Window::new(
         "Diagnostics",
         DIAG_WIDTH,
@@ -324,8 +326,8 @@ fn main() {
     clifford.step(FIRST_DRAW_SIZE);
     let mut densities;
     let mut diag_buf = vec![0u32; DIAG_WIDTH * DIAG_HEIGHT];
-    while (window.is_open() && !window.is_key_down(Key::Escape)) && 
-          (diagnostics.is_open() && !diagnostics.is_key_down(Key::Escape)) {
+    let mut map_buf = vec![0u32; MAP_WIDTH * MAP_HEIGHT];
+    while window.is_open() && !window.is_key_down(Key::Escape) {
         // Then use those generated points to draw onto the buffer in 
         // the appropriate spaces
         if clifford.history.len() < 20_000_000 {
@@ -350,9 +352,47 @@ fn main() {
             }
         }
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
+
         update_diagnostics(&mut diag_buf, &clifford, avg_density);
         diagnostics.update_with_buffer(&diag_buf, DIAG_WIDTH, DIAG_HEIGHT).unwrap();
+
+        update_map(&mut map_buf, &clifford);
+        map_window.update_with_buffer(&map_buf, MAP_WIDTH, MAP_HEIGHT).unwrap();
     }
+}
+
+// TODO on each plane, the coords should be coloured based on how 
+// close they are to a marked location of interest as specified 
+// in `cache/clifford/special.txt`.
+fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor) {
+    let axes = vec![
+        (clifford.a, clifford.b), (clifford.a, clifford.d),
+        (clifford.c, clifford.b), (clifford.c, clifford.d),
+    ];
+    map_buf.fill(0);
+    for (i, ax) in axes.iter().enumerate() {
+        let topleft = (
+            (0.5 * MAP_WIDTH as f64 * if i % 2 == 1 {1.0} else {0.0}) as usize,
+            (0.5 * MAP_HEIGHT as f64 * if i / 2 == 1 {1.0} else {0.0}) as usize,
+        );
+        let x = from_range_to_domain(ax.0, -5.0, 5.0, topleft.0 as f64, topleft.0 as f64 + 0.5 * MAP_WIDTH as f64);
+        let y = from_range_to_domain(ax.1, -5.0, 5.0, topleft.1 as f64, topleft.1 as f64 + 0.5 * MAP_WIDTH as f64);
+        let zero_x = from_range_to_domain(0.0, -5.0, 5.0, topleft.0 as f64, topleft.0 as f64 + 0.5 * MAP_WIDTH as f64) as usize;
+        let zero_y = from_range_to_domain(0.0, -5.0, 5.0, topleft.1 as f64, topleft.1 as f64 + 0.5 * MAP_WIDTH as f64) as usize;
+        for x in 0..((0.5 * MAP_WIDTH as f64) as usize) { 
+            map_buf[(x + topleft.0) + MAP_WIDTH * zero_y] = argb_to_u32(0, 50, 50, 50); 
+        }
+        for y in 0..((0.5 * MAP_HEIGHT as f64) as usize) { 
+            map_buf[zero_x + MAP_WIDTH * (y + topleft.1)] = argb_to_u32(0, 50, 50, 50); 
+        }
+
+        let pos = x as usize * MAP_WIDTH + y as usize;
+        map_buf[pos] = argb_to_u32(0, 255, 255, 255);
+    }
+}
+
+fn from_range_to_domain(x: f64, lower_from: f64, upper_from: f64, lower_to: f64, upper_to: f64) -> f64 {
+    return ((clamp(lower_from, x, upper_from) - lower_from) / (upper_from - lower_from)) * (upper_to - lower_to) + lower_to;
 }
 
 fn update_diagnostics(diag_buf: &mut Vec<u32>, clifford: &CliffordAttractor, avg_density: f64) {
