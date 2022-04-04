@@ -2,9 +2,10 @@
 extern crate test;
 extern crate minifb;
 mod attractors;
+use std::fs::File;
 use std::{fmt::Display, path::Path, fs::OpenOptions, io::BufWriter};
 
-use std::io::prelude::*;
+use std::io::{prelude::*, BufReader};
 use crate::attractors::*;
 use image::{RgbImage, ImageBuffer};
 use minifb::{Key, Window, WindowOptions};
@@ -252,6 +253,7 @@ fn main() {
             keys: vec![Key::M],
             action: Box::new(|clifford, _buffer, _keys, _lch| {
                 let filename = "cache/clifford/special.txt";
+
                 let file;
                 if !Path::new(filename).exists() {
                     // If the file doesn't exist, create it and write the csv header line
@@ -264,11 +266,22 @@ fn main() {
                 } else {
                     file = OpenOptions::new().append(true).open(filename).expect("Couldn't open file for appending");
                 }
-                let mut file = BufWriter::new(file);
-                writeln!(file, "a={},b={},c={},d={}", clifford.a, clifford.b, clifford.c, clifford.d).expect("Failed to write to file");
-                file.flush().expect("Failed to flush the BufWriter");
+                let file_read = File::open(filename).expect("file not found!");
+                let reader = BufReader::new(file_read);
+                let to_add = format!("a={},b={},c={},d={}", clifford.a, clifford.b, clifford.c, clifford.d);
+                let mut already_in_file = false;
+                for line in reader.lines() {
+                    if line.expect("Failed to unwrap line of special.txt").contains(&to_add) {
+                        already_in_file = true;
+                    }
+                }
+                if !already_in_file {
+                    let mut file = BufWriter::new(file);
+                    writeln!(file, "{}", to_add).expect("Failed to write to file");
+                    file.flush().expect("Failed to flush the BufWriter");
 
-                println!("Marked location as special: a={:<10.4}b={:<10.4}c={:<10.4}d={:<10.4}", clifford.a, clifford.b, clifford.c, clifford.d);
+                    println!("Marked location as special: a={:<10.4}b={:<10.4}c={:<10.4}d={:<10.4}", clifford.a, clifford.b, clifford.c, clifford.d);
+                }
             }),
             description: "Increase or decrease the LCH hue slope by 0.01".to_string(),
             enabled: true,
@@ -290,6 +303,15 @@ fn main() {
         hue_slope: 0.15, // values over 0.5 give a bit of a blowout effect
     };
 
+    // TODO diagnostics should show 4 planes:
+    // +---------+
+    // | ab | ad |
+    // |----+----|
+    // | cb | cd |
+    // +---------+
+    // TODO on each plane, the coords should be coloured based on how 
+    // close they are to a marked location of interest as specified 
+    // in `cache/clifford/special.txt`.
     let mut diagnostics = Window::new(
         "Diagnostics",
         DIAG_WIDTH,
