@@ -28,13 +28,14 @@ const HEIGHT: usize = SCREEN_HEIGHT;
 const FIRST_DRAW_SIZE: usize = 9_000_000;
 
 fn main() {
-    let mut _mode: i8 = 1;
     // Create parameters for the clifford attractor
     let mut clifford: CliffordAttractor = CliffordAttractor::new(vec![ -1.4, 1.6, 1.0, 0.7 ]);
     clifford.to_file(format!(
             "cache/clifford/{}-a={}-b={}-c={}-d={}.txt", 
             CliffordAttractor::NAME, clifford.a, clifford.b, clifford.c, clifford.d
             ).to_string());
+
+    let mut specials = get_specials();
 
     let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
     let mut window = Window::new(
@@ -47,7 +48,7 @@ fn main() {
     let commands = vec![
         Command { // j -> a--; J -> b--;
             keys: vec![Key::J],
-            action: Box::new(|clifford, _buffer, keys, _lch| {
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials| {
                 if keys.contains(&Key::LeftShift) {
                     // b--
                     clifford.set_params(vec![None, Some(clifford.b - 0.01), None, None]);
@@ -63,7 +64,7 @@ fn main() {
         },
         Command { // k -> a++; K -> b++;
             keys: vec![Key::K],
-            action: Box::new(|clifford, _buffer, keys, _lch| {
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials| {
                 if keys.contains(&Key::LeftShift) {
                     // b++
                     clifford.set_params(vec![None, Some(clifford.b + 0.01), None, None]);
@@ -79,7 +80,7 @@ fn main() {
         },
         Command { // h -> c--; H -> d--;
             keys: vec![Key::H],
-            action: Box::new(|clifford, _buffer, keys, _lch| {
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials| {
                 if keys.contains(&Key::LeftShift) {
                     // c--
                     clifford.set_params(vec![None, None, Some(clifford.c - 0.01), None]);
@@ -95,7 +96,7 @@ fn main() {
         },
         Command { // l -> c++; L -> d++;
             keys: vec![Key::L],
-            action: Box::new(|clifford, _buffer, keys, _lch| {
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials| {
                 if keys.contains(&Key::LeftShift) {
                     // c++
                     clifford.set_params(vec![None, None, Some(clifford.c + 0.01), None]);
@@ -111,7 +112,7 @@ fn main() {
         },
         Command { // Light Intercept
             keys: vec![Key::Q],
-            action: Box::new(|clifford, _buffer, keys, lch| {
+            action: Box::new(|clifford, _buffer, keys, lch, _specials| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 lch.light_intercept += 0.01 * sign;
                 println!("{:#}", lch);
@@ -122,7 +123,7 @@ fn main() {
         },
         Command { // Light Slope
             keys: vec![Key::A],
-            action: Box::new(|clifford, _buffer, keys, lch| {
+            action: Box::new(|clifford, _buffer, keys, lch, _specials| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 lch.light_slope += 0.01 * sign;
                 println!("{:#}", lch);
@@ -133,7 +134,7 @@ fn main() {
         },
         Command { // Chroma Intercept
             keys: vec![Key::W],
-            action: Box::new(|clifford, _buffer, keys, lch| {
+            action: Box::new(|clifford, _buffer, keys, lch, _specials| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 lch.chroma_intercept += 0.01 * sign;
                 println!("{:#}", lch);
@@ -144,7 +145,7 @@ fn main() {
         },
         Command { // Chroma Slope
             keys: vec![Key::S],
-            action: Box::new(|clifford, _buffer, keys, lch| {
+            action: Box::new(|clifford, _buffer, keys, lch, _specials| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 lch.chroma_slope += 0.01 * sign;
                 println!("{:#}", lch);
@@ -155,7 +156,7 @@ fn main() {
         },
         Command { // Hue Intercept
             keys: vec![Key::E],
-            action: Box::new(|clifford, _buffer, keys, lch| {
+            action: Box::new(|clifford, _buffer, keys, lch, _specials| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 lch.hue_intercept += 0.01 * sign;
                 println!("{:#}", lch);
@@ -166,7 +167,7 @@ fn main() {
         },
         Command { // Hue Slope
             keys: vec![Key::D],
-            action: Box::new(|clifford, _buffer, keys, lch| {
+            action: Box::new(|clifford, _buffer, keys, lch, _specials| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 lch.hue_slope += 0.01 * sign;
                 println!("{:#}", lch);
@@ -177,7 +178,7 @@ fn main() {
         },
         Command { // Reset and randomise
             keys: vec![Key::R],
-            action: Box::new(|clifford, buffer, keys, _lch| {
+            action: Box::new(|clifford, buffer, keys, _lch, _specials| {
                 for item in buffer.iter_mut() { *item = 0; }
                 if keys.contains(&Key::LeftShift) && clifford.param_history.len() > 0 { 
                     clifford.set_params( clifford.param_history.iter().nth_back(2).expect("param history was empty")
@@ -203,7 +204,7 @@ fn main() {
         },
         Command { // Print to disc
             keys: vec![Key::P],
-            action: Box::new(|clifford, _buffer, _keys, lch| {
+            action: Box::new(|clifford, _buffer, _keys, lch, _specials| {
                 let filename = format!("cache/clifford/a={}_b={}_c={}_d={}_iters={}.png", clifford.a, clifford.b, clifford.c, clifford.d, clifford.history.len());
                 print!("Saving data to {}...", filename);
                 let mut image: RgbImage = ImageBuffer::new(7000, 7000);
@@ -231,7 +232,7 @@ fn main() {
         },
         Command { // Change from black bg to white bg
             keys: vec![Key::I],
-            action: Box::new(|clifford, _buffer, _keys, lch| {
+            action: Box::new(|clifford, _buffer, _keys, lch, _specials| {
                 if lch.light_intercept == 1.0 {
                     // Dark background
                     lch.light_intercept = 0.0;
@@ -253,8 +254,11 @@ fn main() {
         },
         Command { // Mark the location as 'special'
             keys: vec![Key::M],
-            action: Box::new(|clifford, _buffer, _keys, _lch| {
+            action: Box::new(|clifford, _buffer, _keys, _lch, specials| {
                 let filename = "cache/clifford/special.txt";
+                if let Some(specials) = specials {
+                    specials.push(vec![clifford.a, clifford.b, clifford.c, clifford.d]);
+                }
 
                 let file;
                 if !Path::new(filename).exists() {
@@ -348,7 +352,7 @@ fn main() {
         for cmd in &commands {
             // check if the currently pressed keys match any of the commands' required keys
             if cmd.enabled && cmd.keys.iter().all(|k| wind_keys.contains(k)) {
-                (cmd.action)(&mut clifford, &mut buffer, &wind_keys, &mut lch);
+                (cmd.action)(&mut clifford, &mut buffer, &wind_keys, &mut lch, &mut specials);
             }
         }
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
@@ -356,15 +360,12 @@ fn main() {
         update_diagnostics(&mut diag_buf, &clifford, avg_density);
         diagnostics.update_with_buffer(&diag_buf, DIAG_WIDTH, DIAG_HEIGHT).unwrap();
 
-        update_map(&mut map_buf, &clifford);
+        update_map(&mut map_buf, &clifford, &specials);
         map_window.update_with_buffer(&map_buf, MAP_WIDTH, MAP_HEIGHT).unwrap();
     }
 }
 
-// TODO on each plane, the coords should be coloured based on how 
-// close they are to a marked location of interest as specified 
-// in `cache/clifford/special.txt`.
-fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor) {
+fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &Option<Vec<Vec<f64>>>) {
     let axes = vec![
         (clifford.a, clifford.b), (clifford.a, clifford.d),
         (clifford.c, clifford.b), (clifford.c, clifford.d),
@@ -375,20 +376,55 @@ fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor) {
             (0.5 * MAP_WIDTH as f64 * if i % 2 == 1 {1.0} else {0.0}) as usize,
             (0.5 * MAP_HEIGHT as f64 * if i / 2 == 1 {1.0} else {0.0}) as usize,
         );
+        // Calculate the current x and y position
         let x = from_range_to_domain(ax.0, -5.0, 5.0, topleft.0 as f64, topleft.0 as f64 + 0.5 * MAP_WIDTH as f64);
         let y = from_range_to_domain(ax.1, -5.0, 5.0, topleft.1 as f64, topleft.1 as f64 + 0.5 * MAP_WIDTH as f64);
+
+        // Draw the axes
         let zero_x = from_range_to_domain(0.0, -5.0, 5.0, topleft.0 as f64, topleft.0 as f64 + 0.5 * MAP_WIDTH as f64) as usize;
         let zero_y = from_range_to_domain(0.0, -5.0, 5.0, topleft.1 as f64, topleft.1 as f64 + 0.5 * MAP_WIDTH as f64) as usize;
         for x in 0..((0.5 * MAP_WIDTH as f64) as usize) { 
-            map_buf[(x + topleft.0) + MAP_WIDTH * zero_y] = argb_to_u32(0, 50, 50, 50); 
+            map_buf[xy2idx(x + topleft.0, zero_y, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 40, 40, 40); 
         }
         for y in 0..((0.5 * MAP_HEIGHT as f64) as usize) { 
-            map_buf[zero_x + MAP_WIDTH * (y + topleft.1)] = argb_to_u32(0, 50, 50, 50); 
+            map_buf[xy2idx(zero_x, y + topleft.1, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 40, 40, 40); 
         }
 
-        let pos = x as usize * MAP_WIDTH + y as usize;
-        map_buf[pos] = argb_to_u32(0, 255, 255, 255);
+        // Mark all the special points on the map
+        if let Some(specials) = specials {
+            for special in specials {
+                let mx = from_range_to_domain(special[if i / 2 == 0 {0} else {2}], -5.0, 5.0, topleft.0 as f64, topleft.0 as f64 + 0.5 * MAP_WIDTH as f64);
+                let my = from_range_to_domain(special[if i % 2 == 0 {1} else {3}], -5.0, 5.0, topleft.1 as f64, topleft.1 as f64 + 0.5 * MAP_WIDTH as f64);
+                map_buf[xy2idx(mx as usize, my as usize, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 200, 200, 200);
+            }
+        }
+
+        // Draw the current position, and cross hairs lines marking it's position
+        for x_delta in (-10)..10 { 
+            map_buf[xy2idx(
+                (x as isize + x_delta + MAP_WIDTH as isize) as usize % MAP_WIDTH,
+                y as usize,
+                MAP_WIDTH,
+                MAP_HEIGHT
+            )] = argb_to_u32(0, 150, 150, 150); 
+        }
+        for y_delta in (-10)..10 { 
+            map_buf[xy2idx(
+                x as usize,
+                (y as isize + y_delta + MAP_HEIGHT as isize) as usize % MAP_HEIGHT,
+                MAP_WIDTH,
+                MAP_HEIGHT
+            )] = argb_to_u32(0, 150, 150, 150); 
+        }
+        // for y in 0..((0.5 * MAP_HEIGHT as f64) as usize) { 
+        //     map_buf[xy2idx(x as usize, y + topleft.1, MAP_WIDTH)] = argb_to_u32(0, 150, 150, 150); 
+        // }
+        map_buf[xy2idx(x as usize, y as usize, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 255, 255, 255);
     }
+}
+
+fn xy2idx(x: usize, y: usize, width: usize, height: usize) -> usize {
+    return usize::min(usize::max(0, y), height - 1) * width + usize::min(usize::max(0, x), width - 1);
 }
 
 fn from_range_to_domain(x: f64, lower_from: f64, upper_from: f64, lower_to: f64, upper_to: f64) -> f64 {
@@ -428,6 +464,20 @@ fn u32_to_argb(packed: u32) -> (u8, u8, u8, u8) {
     let g = ((0x00_00_FF_00 & packed) >> 8) as u8;
     let b = (0x00_00_00_FF & packed) as u8;
     return (a, r, g, b);
+}
+
+fn get_specials() -> Option<Vec<Vec<f64>>> {
+    let filename = "cache/clifford/special.txt";
+
+    if Path::new(filename).exists() {
+        let file_read = File::open(filename).expect("file not found!");
+        let reader = BufReader::new(file_read);
+        let specials = reader.lines().map(|l| {
+            l.unwrap().clone().split(",").map(|s| *(&s[2..].to_owned().parse::<f64>().expect("Couldn't parse specials.txt line"))).collect()
+        }).collect();
+        return Some(specials);
+    }
+    return None;
 }
 
 fn argb_to_u32(a: u8, r: u8, g: u8, b: u8) -> u32 {
@@ -492,7 +542,7 @@ struct Command {
     /// The key which triggers the `action`.
     keys: Vec<Key>,
     /// A function called when `key` is pressed.
-    action: Box<dyn Fn(&mut CliffordAttractor, &mut Vec<u32>, &Vec<Key>, &mut LchParams) -> ()>,
+    action: Box<dyn Fn(&mut CliffordAttractor, &mut Vec<u32>, &Vec<Key>, &mut LchParams, &mut Option<Vec<Vec<f64>>>) -> ()>,
     /// A one-line description of what `action` does.
     description: String,
     /// `action` is only called if `key` is pressed and `enabled` is true.
