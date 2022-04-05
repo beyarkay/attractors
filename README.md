@@ -41,17 +41,55 @@ a smooth experience.
 
 There will be some console output explaining the available commands and what
 they do, and two windows should pop up: a small diagnostics window (which you
-can ignore) and a larger square window.
+can ignore) a square Map window (which you can ignore), and a larger square
+window.
 
-Click on the square window to focus it. The attractor will automatically be
-drawn, and you can change the 4 parameters fed to the attractor (named a, b, c,
-d) with vim-like key bindings:
+Click on the large square window to focus it. The attractor will automatically
+be drawn, and you can change the 4 parameters fed to the attractor (named a, b,
+c, d) with vim-like key bindings:
 ```
 j -> decrease a; k -> increase a; 
 J -> decrease b; K -> increase b;
 h -> decrease c; l -> increase c; 
 H -> decrease d; L -> increase d;
 ```
+
+### The Map window
+
+If you look at the Map window, you'll see four 2D plots. Each of the four plots
+shows two parameters, and together they can guide you around the 4D parameter
+space. The plots are: a-b, a-d, c-b, and c-d. They're oriented like this:
+```
+       b            d     
+       |            |     
+  -----+----a  -----+----a
+       |            |     
+       |            |     
+
+       b            d     
+       |            |     
+  -----+----c  -----+----c
+       |            |     
+       |            |     
+```
+
+And the window looks like this:
+
+![](img/map.png)
+
+As you press `hjklHJKL` the 4 cross-hairs on the Map window will move around
+the four plots so the cross-hair on the `a-b` plot will show the current values
+for the `a` and `b` parameters, the cross-hair on the `a-d` plot will show the
+current values for the `a` and `d` parameters, and so on.
+
+There are also lots of white dots on the map, like constellations. Each dot
+represents a special or interesting strange attractor, and you can mark a particular
+attractor as special by pressing the `m` key. Special attractors are saved to
+`cache/clifford/special.txt` and will persist between runs of the program. Try
+navigate to different special attractors. It's takes getting used to, since all
+four cross-hairs need to line up different white dots but it's a fun exercise.
+
+### Other commands
 
 Additionally, you can select a random set of parameters by pressing R:
 ```
@@ -68,6 +106,15 @@ You can also change the hue of the attractor by pressing `e` or `E`:
 ```
 `[E]` => Increase or decrease the LCH hue intercept by 0.01 (enabled: true)
 ```
+
+Pressing `n` or `N` will increase/decrease the decay factor between 0 and 1.
+Values closer to zero will cause previous attractors to blend into future
+attractors like echoes, which is a nice effect but primarily is good at reducing
+the strobing and stuttering effect dangerous to those with photosensitive epilepsy.
+```
+`[N]` =>  Change how quickly one attractor merges to another (helps with photosensitive epilepsy)
+```
+
 
 ## What are Strange Attractors
 Strange attractors are (usually) a recursive formula which take in a point in
