@@ -11,12 +11,12 @@ use image::{RgbImage, ImageBuffer};
 use minifb::{Key, Window, WindowOptions, clamp};
 use rand::Rng;
 
-const A2_300_DPI_WIDTH: usize = 7016;
-const A2_300_DPI_HEIGHT: usize = 4961;
-const A3_300_DPI_WIDTH: usize =  4961;
-const A3_300_DPI_HEIGHT: usize =  3508;
-const A4_300_DPI_WIDTH: usize =  3508;
-const A4_300_DPI_HEIGHT: usize =  2480;
+const _A2_300_DPI_WIDTH: usize = 7016;
+const _A2_300_DPI_HEIGHT: usize = 4961;
+const _A3_300_DPI_WIDTH: usize =  4961;
+const _A3_300_DPI_HEIGHT: usize =  3508;
+const _A4_300_DPI_WIDTH: usize =  3508;
+const _A4_300_DPI_HEIGHT: usize =  2480;
 const MAP_WIDTH: usize = 400;
 const MAP_HEIGHT: usize = 400;
 const DIAG_WIDTH: usize = 300;
@@ -31,7 +31,7 @@ fn main() {
     // Create parameters for the clifford attractor
     let mut clifford: CliffordAttractor = CliffordAttractor::new(vec![ -1.4, 1.6, 1.0, 0.7 ]);
     clifford.to_file(format!(
-            "cache/clifford/{}-a={}-b={}-c={}-d={}.txt", 
+            "cache/clifford/{}-a={}-b={}-c={}-d={}.txt",
             CliffordAttractor::NAME, clifford.a, clifford.b, clifford.c, clifford.d
             ).to_string());
 
@@ -45,10 +45,16 @@ fn main() {
         WindowOptions::default(),
     ).unwrap_or_else(|e| { panic!("{}", e); });
 
+    // Each frame is calculated via an exponential decay as
+    // `next = noodle_factor * current + (1-noodle_factor) * previous`
+    // Values of noodle_factor closer to 0 will 'fade in' or 'blend' the next frame with the
+    // current one, reducing stuttering or flashing effects
+    let mut noodle_factor = 0.9;
+
     let commands = vec![
         Command { // j -> a--; J -> b--;
             keys: vec![Key::J],
-            action: Box::new(|clifford, _buffer, keys, _lch, _specials| {
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _decay_factor| {
                 if keys.contains(&Key::LeftShift) {
                     // b--
                     clifford.set_params(vec![None, Some(clifford.b - 0.01), None, None]);
@@ -64,7 +70,7 @@ fn main() {
         },
         Command { // k -> a++; K -> b++;
             keys: vec![Key::K],
-            action: Box::new(|clifford, _buffer, keys, _lch, _specials| {
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _decay_factor| {
                 if keys.contains(&Key::LeftShift) {
                     // b++
                     clifford.set_params(vec![None, Some(clifford.b + 0.01), None, None]);
@@ -80,7 +86,7 @@ fn main() {
         },
         Command { // h -> c--; H -> d--;
             keys: vec![Key::H],
-            action: Box::new(|clifford, _buffer, keys, _lch, _specials| {
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _decay_factor| {
                 if keys.contains(&Key::LeftShift) {
                     // c--
                     clifford.set_params(vec![None, None, Some(clifford.c - 0.01), None]);
@@ -96,7 +102,7 @@ fn main() {
         },
         Command { // l -> c++; L -> d++;
             keys: vec![Key::L],
-            action: Box::new(|clifford, _buffer, keys, _lch, _specials| {
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _decay_factor| {
                 if keys.contains(&Key::LeftShift) {
                     // c++
                     clifford.set_params(vec![None, None, Some(clifford.c + 0.01), None]);
@@ -112,7 +118,7 @@ fn main() {
         },
         Command { // Light Intercept
             keys: vec![Key::Q],
-            action: Box::new(|clifford, _buffer, keys, lch, _specials| {
+            action: Box::new(|clifford, _buffer, keys, lch, _specials, _decay_factor| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 lch.light_intercept += 0.01 * sign;
                 println!("{:#}", lch);
@@ -123,7 +129,7 @@ fn main() {
         },
         Command { // Light Slope
             keys: vec![Key::A],
-            action: Box::new(|clifford, _buffer, keys, lch, _specials| {
+            action: Box::new(|clifford, _buffer, keys, lch, _specials, _decay_factor| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 lch.light_slope += 0.01 * sign;
                 println!("{:#}", lch);
@@ -134,7 +140,7 @@ fn main() {
         },
         Command { // Chroma Intercept
             keys: vec![Key::W],
-            action: Box::new(|clifford, _buffer, keys, lch, _specials| {
+            action: Box::new(|clifford, _buffer, keys, lch, _specials, _decay_factor| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 lch.chroma_intercept += 0.01 * sign;
                 println!("{:#}", lch);
@@ -145,7 +151,7 @@ fn main() {
         },
         Command { // Chroma Slope
             keys: vec![Key::S],
-            action: Box::new(|clifford, _buffer, keys, lch, _specials| {
+            action: Box::new(|clifford, _buffer, keys, lch, _specials, _decay_factor| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 lch.chroma_slope += 0.01 * sign;
                 println!("{:#}", lch);
@@ -156,7 +162,7 @@ fn main() {
         },
         Command { // Hue Intercept
             keys: vec![Key::E],
-            action: Box::new(|clifford, _buffer, keys, lch, _specials| {
+            action: Box::new(|clifford, _buffer, keys, lch, _specials, _decay_factor| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 lch.hue_intercept += 0.01 * sign;
                 println!("{:#}", lch);
@@ -167,7 +173,7 @@ fn main() {
         },
         Command { // Hue Slope
             keys: vec![Key::D],
-            action: Box::new(|clifford, _buffer, keys, lch, _specials| {
+            action: Box::new(|clifford, _buffer, keys, lch, _specials, _decay_factor| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 lch.hue_slope += 0.01 * sign;
                 println!("{:#}", lch);
@@ -178,16 +184,16 @@ fn main() {
         },
         Command { // Reset and randomise
             keys: vec![Key::R],
-            action: Box::new(|clifford, buffer, keys, _lch, _specials| {
+            action: Box::new(|clifford, buffer, keys, _lch, _specials, _decay_factor| {
                 for item in buffer.iter_mut() { *item = 0; }
-                if keys.contains(&Key::LeftShift) && clifford.param_history.len() > 0 { 
+                if keys.contains(&Key::LeftShift) && clifford.param_history.len() > 0 {
                     clifford.set_params( clifford.param_history.iter().nth_back(2).expect("param history was empty")
                             .clone()
                             .into_iter()
                             .map(|p| Some(p))
                             .collect()
                     );
-                } else { 
+                } else {
                     let mut rng = rand::thread_rng();
                     clifford.set_params(vec![
                                         Some(rng.gen_range(-4.0..4.0)),
@@ -204,7 +210,7 @@ fn main() {
         },
         Command { // Print to disc
             keys: vec![Key::P],
-            action: Box::new(|clifford, _buffer, _keys, lch, _specials| {
+            action: Box::new(|clifford, _buffer, _keys, lch, _specials, _decay_factor| {
                 let filename = format!("cache/clifford/a={}_b={}_c={}_d={}_iters={}.png", clifford.a, clifford.b, clifford.c, clifford.d, clifford.history.len());
                 print!("Saving data to {}...", filename);
                 let mut image: RgbImage = ImageBuffer::new(7000, 7000);
@@ -232,29 +238,29 @@ fn main() {
         },
         Command { // Change from black bg to white bg
             keys: vec![Key::I],
-            action: Box::new(|clifford, _buffer, _keys, lch, _specials| {
+            action: Box::new(|clifford, _buffer, _keys, lch, _specials, _decay_factor| {
                 if lch.light_intercept == 1.0 {
                     // Dark background
                     lch.light_intercept = 0.0;
                     lch.light_slope = 1.0;
-                    lch.chroma_intercept = 1.5; 
-                    lch.chroma_slope = 0.2; 
+                    lch.chroma_intercept = 1.5;
+                    lch.chroma_slope = 0.2;
                 } else {
                     // Light background
                     lch.light_intercept = 1.0;
                     lch.light_slope = -1.0;
                     lch.chroma_intercept = 0.7;
-                    lch.chroma_slope = 1.5; 
+                    lch.chroma_slope = 1.5;
                 }
                 println!("Inverted colours:\n{:#}", lch);
                 clifford.step(1);
             }),
-            description: "Increase or decrease the LCH hue slope by 0.01".to_string(),
+            description: "Change between black and white backgrounds".to_string(),
             enabled: true,
         },
         Command { // Mark the location as 'special'
             keys: vec![Key::M],
-            action: Box::new(|clifford, _buffer, _keys, _lch, specials| {
+            action: Box::new(|clifford, _buffer, _keys, _lch, specials, _decay_factor| {
                 let filename = "cache/clifford/special.txt";
                 if let Some(specials) = specials {
                     specials.push(vec![clifford.a, clifford.b, clifford.c, clifford.d]);
@@ -289,7 +295,17 @@ fn main() {
                     println!("Marked location as special: a={:<10.4}b={:<10.4}c={:<10.4}d={:<10.4}", clifford.a, clifford.b, clifford.c, clifford.d);
                 }
             }),
-            description: "Increase or decrease the LCH hue slope by 0.01".to_string(),
+            description: "Mark a set of parameters as 'special' and save them to a file for future use".to_string(),
+            enabled: true,
+        },
+        Command { // Change how quickly images blend together (helps with image flickering)
+            keys: vec![Key::N],
+            action: Box::new(|_clifford, _buffer, keys, _lch, _specials, noodle_factor| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                *noodle_factor = f64::min(1.0, f64::max(0.05, *noodle_factor + sign * 0.05));
+                println!("{}", noodle_factor);
+            }),
+            description: "Change how quickly one attractor merges to another (helps with photosensitive epilepsy)".to_string(),
             enabled: true,
         },
         ];
@@ -329,10 +345,11 @@ fn main() {
 
     clifford.step(FIRST_DRAW_SIZE);
     let mut densities;
+    let mut prev_densities = vec![0f64; WIDTH * HEIGHT];
     let mut diag_buf = vec![0u32; DIAG_WIDTH * DIAG_HEIGHT];
     let mut map_buf = vec![0u32; MAP_WIDTH * MAP_HEIGHT];
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        // Then use those generated points to draw onto the buffer in 
+        // Then use those generated points to draw onto the buffer in
         // the appropriate spaces
         if clifford.history.len() < 20_000_000 {
             clifford.step(100_000);
@@ -340,11 +357,11 @@ fn main() {
         densities = clifford.get_densities(WIDTH, HEIGHT);
         let avg_density = densities.iter().sum::<f64>() / densities.len() as f64;
         for (i, item) in buffer.iter_mut().enumerate() {
-            let val: f64 = densities[i];
+            prev_densities[i] = noodle_factor * densities[i] + (1.0 - noodle_factor) * prev_densities[i];
             *item = hsla_to_u32(
-                val * lch.hue_slope + lch.hue_intercept,
-                val * lch.chroma_slope + lch.chroma_intercept,
-                val.powf(0.3) * lch.light_slope + lch.light_intercept,
+                (prev_densities[i]) * lch.hue_slope + lch.hue_intercept,
+                (prev_densities[i]) * lch.chroma_slope + lch.chroma_intercept,
+                (prev_densities[i]).powf(0.3) * lch.light_slope + lch.light_intercept,
                 0.0,
             );
         }
@@ -352,7 +369,7 @@ fn main() {
         for cmd in &commands {
             // check if the currently pressed keys match any of the commands' required keys
             if cmd.enabled && cmd.keys.iter().all(|k| wind_keys.contains(k)) {
-                (cmd.action)(&mut clifford, &mut buffer, &wind_keys, &mut lch, &mut specials);
+                (cmd.action)(&mut clifford, &mut buffer, &wind_keys, &mut lch, &mut specials, &mut noodle_factor);
             }
         }
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
@@ -383,11 +400,11 @@ fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &O
         // Draw the axes
         let zero_x = from_range_to_domain(0.0, -5.0, 5.0, topleft.0 as f64, topleft.0 as f64 + 0.5 * MAP_WIDTH as f64) as usize;
         let zero_y = from_range_to_domain(0.0, -5.0, 5.0, topleft.1 as f64, topleft.1 as f64 + 0.5 * MAP_WIDTH as f64) as usize;
-        for x in 0..((0.5 * MAP_WIDTH as f64) as usize) { 
-            map_buf[xy2idx(x + topleft.0, zero_y, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 40, 40, 40); 
+        for x in 0..((0.5 * MAP_WIDTH as f64) as usize) {
+            map_buf[xy2idx(x + topleft.0, zero_y, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 40, 40, 40);
         }
-        for y in 0..((0.5 * MAP_HEIGHT as f64) as usize) { 
-            map_buf[xy2idx(zero_x, y + topleft.1, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 40, 40, 40); 
+        for y in 0..((0.5 * MAP_HEIGHT as f64) as usize) {
+            map_buf[xy2idx(zero_x, y + topleft.1, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 40, 40, 40);
         }
 
         // Mark all the special points on the map
@@ -400,24 +417,24 @@ fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &O
         }
 
         // Draw the current position, and cross hairs lines marking it's position
-        for x_delta in (-10)..10 { 
+        for x_delta in (-10)..10 {
             map_buf[xy2idx(
                 (x as isize + x_delta + MAP_WIDTH as isize) as usize % MAP_WIDTH,
                 y as usize,
                 MAP_WIDTH,
                 MAP_HEIGHT
-            )] = argb_to_u32(0, 150, 150, 150); 
+            )] = argb_to_u32(0, 150, 150, 150);
         }
-        for y_delta in (-10)..10 { 
+        for y_delta in (-10)..10 {
             map_buf[xy2idx(
                 x as usize,
                 (y as isize + y_delta + MAP_HEIGHT as isize) as usize % MAP_HEIGHT,
                 MAP_WIDTH,
                 MAP_HEIGHT
-            )] = argb_to_u32(0, 150, 150, 150); 
+            )] = argb_to_u32(0, 150, 150, 150);
         }
-        // for y in 0..((0.5 * MAP_HEIGHT as f64) as usize) { 
-        //     map_buf[xy2idx(x as usize, y + topleft.1, MAP_WIDTH)] = argb_to_u32(0, 150, 150, 150); 
+        // for y in 0..((0.5 * MAP_HEIGHT as f64) as usize) {
+        //     map_buf[xy2idx(x as usize, y + topleft.1, MAP_WIDTH)] = argb_to_u32(0, 150, 150, 150);
         // }
         map_buf[xy2idx(x as usize, y as usize, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 255, 255, 255);
     }
@@ -451,7 +468,7 @@ fn update_diagnostics(diag_buf: &mut Vec<u32>, clifford: &CliffordAttractor, avg
         let pos = y * DIAG_WIDTH + x as usize;
         diag_buf[pos] = argb_to_u32(0, 0, 0, 0);
     }
-    // Raise avg_density to the power of 0.3 because there are _loads_ of small values 
+    // Raise avg_density to the power of 0.3 because there are _loads_ of small values
     // (1e-3 < value < 1e-1) which are still meaningful but get lost
     let y = (avg_density.powf(0.3) * DIAG_HEIGHT as f64 ) as usize;
     let pos = y * DIAG_WIDTH + x as usize;
@@ -494,7 +511,7 @@ fn hsla_to_u32(h: f64, s: f64, l: f64, _a: f64) -> u32 {
     let b: u8;
     let a: u8 = 1;
 
-    // If saturation is zero, then the color is just grey => all red, 
+    // If saturation is zero, then the color is just grey => all red,
     // green, blue components are equal
     if s == 0.0 {
         r = (l * 255.0) as u8;
@@ -533,16 +550,16 @@ fn hsla_to_u32(h: f64, s: f64, l: f64, _a: f64) -> u32 {
 //     let rgb = Srgb::from_color(lch);
 //     return argb_to_u32(0, (rgb.red * 255.0) as u8, (rgb.green * 255.0) as u8, (rgb.blue * 255.0) as u8);
 // }
-// TODO plot the keyframes as lines tracing the a,b,c,d parameters along the 
+// TODO plot the keyframes as lines tracing the a,b,c,d parameters along the
 // bottom of the screen
 
-/// A common format for commands so that a help file can be printed out easily in the format 
+/// A common format for commands so that a help file can be printed out easily in the format
 /// `key` -> `description`.
-struct Command { 
+struct Command {
     /// The key which triggers the `action`.
     keys: Vec<Key>,
     /// A function called when `key` is pressed.
-    action: Box<dyn Fn(&mut CliffordAttractor, &mut Vec<u32>, &Vec<Key>, &mut LchParams, &mut Option<Vec<Vec<f64>>>) -> ()>,
+    action: Box<dyn Fn(&mut CliffordAttractor, &mut Vec<u32>, &Vec<Key>, &mut LchParams, &mut Option<Vec<Vec<f64>>>, &mut f64) -> ()>,
     /// A one-line description of what `action` does.
     description: String,
     /// `action` is only called if `key` is pressed and `enabled` is true.
@@ -552,7 +569,7 @@ struct Command {
 
 /// Contains the constants that get multiplied by the value at each pixel in order to convert that
 /// scalar value to a color in LCH space. The conversion is done as:
-/// ``` 
+/// ```
 /// light_component  = val * light_slope  + light_intercept
 /// chroma_component = val * chroma_slope + chroma_intercept
 /// hue_component    = val * hue_slope    + hue_intercept
