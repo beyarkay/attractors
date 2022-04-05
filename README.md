@@ -144,4 +144,13 @@ See these links for examples of strange attractors.
 - [Catrián Attractors](http://paulbourke.net/fractals/JuanCatrian/)
 - [Burke-Shaw Attractors](http://paulbourke.net/fractals/burkeshaw/)
 - [Yu-Wang Attractors](http://paulbourke.net/fractals/yuwang/)
+- [Tinkerbell Attractor](https://en.wikipedia.org/wiki/Tinkerbell_map)
+- [The King's Dream Attractors](https://nathanselikoff.com/training/tutorial-strange-attractors-in-c-and-opengl)
+    - ```float xnew = sin(y*b) + c*sin(x*b); float ynew = sin(x*a) + d*sin(y*a);```
+- [Others defined on wikipedia/chaotic_maps](https://en.wikipedia.org/wiki/List_of_chaotic_maps)
+- [Others defined on Chaoscope](http://www.chaoscope.org/doc/attractors.htm)
 
+
+## TODO
+- Add Diagnostics: fractal dimension greater than 1.5 => Chaotic?
+- Add Diagnostics: positive Lyapunov exponent => Chaotic
