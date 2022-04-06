@@ -17,14 +17,16 @@ const _A3_300_DPI_WIDTH: usize =  4961;
 const _A3_300_DPI_HEIGHT: usize =  3508;
 const _A4_300_DPI_WIDTH: usize =  3508;
 const _A4_300_DPI_HEIGHT: usize =  2480;
+const REELS_WIDTH: usize = 506;
+const REELS_HEIGHT: usize = 900;
 const MAP_WIDTH: usize = 400;
 const MAP_HEIGHT: usize = 400;
 const DIAG_WIDTH: usize = 300;
 const DIAG_HEIGHT: usize = 100;
 const SCREEN_WIDTH: usize = 900;
 const SCREEN_HEIGHT: usize = 900;
-const WIDTH: usize = SCREEN_WIDTH;
-const HEIGHT: usize = SCREEN_HEIGHT;
+const WIDTH: usize = REELS_WIDTH;
+const HEIGHT: usize = REELS_HEIGHT;
 const FIRST_DRAW_SIZE: usize = 9_000_000;
 
 fn main() {
