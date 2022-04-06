@@ -8,7 +8,7 @@ use std::{fmt::Display, path::Path, fs::OpenOptions, io::BufWriter};
 use std::io::{prelude::*, BufReader};
 use crate::attractors::*;
 use image::{RgbImage, ImageBuffer};
-use minifb::{Key, Window, WindowOptions, clamp};
+use minifb::{Key, Window, WindowOptions, clamp, MouseMode};
 use rand::Rng;
 
 const _A2_300_DPI_WIDTH: usize = 7016;
@@ -377,20 +377,27 @@ fn main() {
         }
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
 
-        update_diagnostics(&mut diag_buf, &clifford, avg_density);
-        diagnostics.update_with_buffer(&diag_buf, DIAG_WIDTH, DIAG_HEIGHT).unwrap();
+        if diagnostics.is_open() {
+            update_diagnostics(&mut diag_buf, &clifford, avg_density);
+            diagnostics.update_with_buffer(&diag_buf, DIAG_WIDTH, DIAG_HEIGHT).unwrap();
+        }
 
-        update_map(&mut map_buf, &clifford, &specials);
-        map_window.update_with_buffer(&map_buf, MAP_WIDTH, MAP_HEIGHT).unwrap();
+        if map_window.is_open() {
+            let mouse_pos = map_window.get_mouse_pos(MouseMode::Discard);
+            update_map(&mut map_buf, &clifford, &specials, &mouse_pos);
+            map_window.update_with_buffer(&map_buf, MAP_WIDTH, MAP_HEIGHT).unwrap();
+        }
     }
 }
 
-fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &Option<Vec<Vec<f64>>>) {
+fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &Option<Vec<Vec<f64>>>, mouse_pos: &Option<(f32, f32)>) {
     let axes = vec![
         (clifford.a, clifford.b), (clifford.a, clifford.d),
         (clifford.c, clifford.b), (clifford.c, clifford.d),
     ];
+    // Erase everything, we want to start from a blank canvas
     map_buf.fill(0);
+    // Draw the axes, and the specially marked points on those axes
     for (i, ax) in axes.iter().enumerate() {
         let topleft = (
             (0.5 * MAP_WIDTH as f64 * if i % 2 == 1 {1.0} else {0.0}) as usize,
@@ -440,6 +447,22 @@ fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &O
         //     map_buf[xy2idx(x as usize, y + topleft.1, MAP_WIDTH)] = argb_to_u32(0, 150, 150, 150);
         // }
         map_buf[xy2idx(x as usize, y as usize, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 255, 255, 255);
+    }
+
+    // Draw cross-hairs for the mouse's current position
+    if let Some((mousex, mousey)) = mouse_pos {
+        for delta in (-10)..10 {
+            map_buf[xy2idx(
+                (*mousex as isize + delta + MAP_WIDTH as isize) as usize % MAP_WIDTH,
+                *mousey as usize,
+                MAP_WIDTH, MAP_HEIGHT
+            )] = argb_to_u32(0, 150, 0, 0);
+            map_buf[xy2idx(
+                *mousex as usize,
+                (*mousey as isize + delta + MAP_HEIGHT as isize) as usize % MAP_HEIGHT,
+                MAP_WIDTH, MAP_HEIGHT
+            )] = argb_to_u32(0, 150, 0, 0);
+        }
     }
 }
 
