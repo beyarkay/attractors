@@ -8,7 +8,7 @@ use std::{fmt::Display, path::Path, fs::OpenOptions, io::BufWriter};
 use std::io::{prelude::*, BufReader};
 use crate::attractors::*;
 use image::{RgbImage, ImageBuffer};
-use minifb::{Key, Window, WindowOptions, clamp, MouseMode};
+use minifb::{Key, Window, WindowOptions, clamp, MouseMode, MouseButton};
 use rand::Rng;
 
 const _A2_300_DPI_WIDTH: usize = 7016;
@@ -368,6 +368,17 @@ fn main() {
                 0.0,
             );
         }
+        if map_window.is_open() {
+            let mouse_pos = map_window.get_mouse_pos(MouseMode::Discard);
+            let new_params = update_map(&mut map_buf, &clifford, &specials, &mouse_pos, map_window.get_mouse_down(MouseButton::Left));
+            map_window.update_with_buffer(&map_buf, MAP_WIDTH, MAP_HEIGHT).unwrap();
+            // Only update the attractor if >0 of the parameters have changed
+            if new_params.iter().any(|p| p.is_some()) {
+                clifford.set_params(new_params);
+                clifford.reset();
+                clifford.step(100_000);
+            }
+        }
         let wind_keys = window.get_keys();
         for cmd in &commands {
             // check if the currently pressed keys match any of the commands' required keys
@@ -381,28 +392,29 @@ fn main() {
             update_diagnostics(&mut diag_buf, &clifford, avg_density);
             diagnostics.update_with_buffer(&diag_buf, DIAG_WIDTH, DIAG_HEIGHT).unwrap();
         }
-
-        if map_window.is_open() {
-            let mouse_pos = map_window.get_mouse_pos(MouseMode::Discard);
-            update_map(&mut map_buf, &clifford, &specials, &mouse_pos);
-            map_window.update_with_buffer(&map_buf, MAP_WIDTH, MAP_HEIGHT).unwrap();
-        }
     }
 }
 
-fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &Option<Vec<Vec<f64>>>, mouse_pos: &Option<(f32, f32)>) {
+fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &Option<Vec<Vec<f64>>>, mouse_pos: &Option<(f32, f32)>, mouse_down: bool) -> Vec<Option<f64>>{
     let axes = vec![
         (clifford.a, clifford.b), (clifford.a, clifford.d),
         (clifford.c, clifford.b), (clifford.c, clifford.d),
     ];
     // Erase everything, we want to start from a blank canvas
     map_buf.fill(0);
+    let mut returner = vec![None; 4];
     // Draw the axes, and the specially marked points on those axes
     for (i, ax) in axes.iter().enumerate() {
+        // Figure out the topleft pixel coordinate for the current axis
         let topleft = (
             (0.5 * MAP_WIDTH as f64 * if i % 2 == 1 {1.0} else {0.0}) as usize,
             (0.5 * MAP_HEIGHT as f64 * if i / 2 == 1 {1.0} else {0.0}) as usize,
         );
+        let botright = (
+            (topleft.0 as f64 + 0.5 * MAP_WIDTH as f64) as usize,
+            (topleft.1 as f64 + 0.5 * MAP_HEIGHT as f64) as usize,
+        );
+
         // Calculate the current x and y position
         let x = from_range_to_domain(ax.0, -5.0, 5.0, topleft.0 as f64, topleft.0 as f64 + 0.5 * MAP_WIDTH as f64);
         let y = from_range_to_domain(ax.1, -5.0, 5.0, topleft.1 as f64, topleft.1 as f64 + 0.5 * MAP_WIDTH as f64);
@@ -443,10 +455,37 @@ fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &O
                 MAP_HEIGHT
             )] = argb_to_u32(0, 150, 150, 150);
         }
-        // for y in 0..((0.5 * MAP_HEIGHT as f64) as usize) {
-        //     map_buf[xy2idx(x as usize, y + topleft.1, MAP_WIDTH)] = argb_to_u32(0, 150, 150, 150);
-        // }
-        map_buf[xy2idx(x as usize, y as usize, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 255, 255, 255);
+
+        // If the user clicks on this set of axes, change the parameters
+        if let Some((mousex, mousey)) = mouse_pos {
+            // Figure out if the user's even clicking on the current plot
+            let mouse_in_curr_plot_x = topleft.0 < *mousex as usize
+                && *mousex < botright.0 as f32;
+            let mouse_in_curr_plot_y = topleft.1 < *mousey as usize
+                && *mousey < botright.1 as f32;
+            if mouse_down && mouse_in_curr_plot_x && mouse_in_curr_plot_y {
+                // Convert pixel-coordinates to parameter-coordinates
+                let param_x = from_range_to_domain(
+                    *mousex as f64,
+                    topleft.0 as f64,
+                    botright.0 as f64,
+                    -5.0, 5.0
+                );
+                let param_y = from_range_to_domain(
+                    *mousey as f64,
+                    topleft.1 as f64,
+                    botright.1 as f64,
+                    -5.0, 5.0
+                );
+                // Resolve parameter values to the correct attractor parameters based on which plot
+                // we're currently resolving
+                let a = if i == 0 || i == 1 { Some(param_x) } else { None };
+                let b = if i == 0 || i == 2 { Some(param_y) } else { None };
+                let c = if i == 2 || i == 3 { Some(param_x) } else { None };
+                let d = if i == 1 || i == 3 { Some(param_y) } else { None };
+                returner = vec![ a, b, c, d ];
+            }
+        }
     }
 
     // Draw cross-hairs for the mouse's current position
@@ -464,6 +503,7 @@ fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &O
             )] = argb_to_u32(0, 150, 0, 0);
         }
     }
+    return returner;
 }
 
 fn xy2idx(x: usize, y: usize, width: usize, height: usize) -> usize {
