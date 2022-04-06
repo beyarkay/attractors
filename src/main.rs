@@ -333,6 +333,7 @@ fn main() {
             ..WindowOptions::default()
         },
     ).unwrap();
+    map_window.set_position(0, 0);
 
     let mut diagnostics = Window::new(
         "Diagnostics",
@@ -342,6 +343,8 @@ fn main() {
             ..WindowOptions::default()
         },
     ).unwrap();
+    diagnostics.set_position(0, 65 + MAP_HEIGHT as isize);
+    window.set_position(MAP_WIDTH as isize, 0);
 
     clifford.step(FIRST_DRAW_SIZE);
     let mut densities;
