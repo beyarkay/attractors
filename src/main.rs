@@ -28,6 +28,7 @@ const SCREEN_HEIGHT: usize = 900;
 const WIDTH: usize = REELS_WIDTH;
 const HEIGHT: usize = REELS_HEIGHT;
 const FIRST_DRAW_SIZE: usize = 9_000_000;
+const MIN_NUM_STEPS: usize = 200_000;
 
 fn main() {
     // Create parameters for the clifford attractor
@@ -65,7 +66,7 @@ fn main() {
                     clifford.set_params(vec![Some(clifford.a - 0.01), None, None, None]);
                 };
                 clifford.reset();
-                clifford.step(100_000);
+                clifford.step(MIN_NUM_STEPS);
             }),
             description: "j -> a--; J -> b--;".to_string(),
             enabled: true,
@@ -81,7 +82,7 @@ fn main() {
                     clifford.set_params(vec![Some(clifford.a + 0.01), None, None, None]);
                 };
                 clifford.reset();
-                clifford.step(100_000);
+                clifford.step(MIN_NUM_STEPS);
             }),
             description: "k -> a++; K -> b++;".to_string(),
             enabled: true,
@@ -97,7 +98,7 @@ fn main() {
                     clifford.set_params(vec![None, None, None, Some(clifford.d - 0.01)]);
                 };
                 clifford.reset();
-                clifford.step(100_000);
+                clifford.step(MIN_NUM_STEPS);
             }),
             description: "h -> c--; H -> d--;".to_string(),
             enabled: true,
@@ -113,7 +114,7 @@ fn main() {
                     clifford.set_params(vec![None, None, None, Some(clifford.d + 0.01)]);
                 };
                 clifford.reset();
-                clifford.step(100_000);
+                clifford.step(MIN_NUM_STEPS);
             }),
             description: "l -> c++; L -> d++;".to_string(),
             enabled: true,
@@ -205,7 +206,7 @@ fn main() {
                     ]);
                 };
                 clifford.reset();
-                clifford.step(1_000_000);
+                clifford.step(MIN_NUM_STEPS);
             }),
             description: "Randomize the Clifford parameters and re-run the attractor with these new parameters".to_string(),
             enabled: true,
@@ -348,7 +349,7 @@ fn main() {
     diagnostics.set_position(0, 65 + MAP_HEIGHT as isize);
     window.set_position(MAP_WIDTH as isize, 0);
 
-    clifford.step(FIRST_DRAW_SIZE);
+    clifford.step(MIN_NUM_STEPS);
     let mut densities;
     let mut prev_densities = vec![0f64; WIDTH * HEIGHT];
     let mut diag_buf = vec![0u32; DIAG_WIDTH * DIAG_HEIGHT];
@@ -357,7 +358,7 @@ fn main() {
         // Then use those generated points to draw onto the buffer in
         // the appropriate spaces
         if clifford.history.len() < 20_000_000 {
-            clifford.step(100_000);
+            clifford.step(MIN_NUM_STEPS);
         }
         densities = clifford.get_densities(WIDTH, HEIGHT);
         let avg_density = densities.iter().sum::<f64>() / densities.len() as f64;
@@ -378,7 +379,7 @@ fn main() {
             if new_params.iter().any(|p| p.is_some()) {
                 clifford.set_params(new_params);
                 clifford.reset();
-                clifford.step(100_000);
+                clifford.step(MIN_NUM_STEPS);
             }
         }
         let wind_keys = window.get_keys();
