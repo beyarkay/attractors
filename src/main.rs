@@ -8,37 +8,50 @@ use std::{fmt::Display, path::Path, fs::OpenOptions, io::BufWriter};
 use std::io::{prelude::*, BufReader};
 use crate::attractors::*;
 use image::{RgbImage, ImageBuffer};
-use minifb::{Key, Window, WindowOptions, clamp, MouseMode, MouseButton};
+use minifb::{Key, Window, WindowOptions, clamp, MouseMode, MouseButton, CursorStyle};
 use rand::Rng;
 
-const _A2_300_DPI_WIDTH: usize = 7016;
-const _A2_300_DPI_HEIGHT: usize = 4961;
-const _A3_300_DPI_WIDTH: usize =  4961;
-const _A3_300_DPI_HEIGHT: usize =  3508;
-const _A4_300_DPI_WIDTH: usize =  3508;
-const _A4_300_DPI_HEIGHT: usize =  2480;
+enum IsoPaper {
+    A0, A1, A2, A3, A4, A5,
+}
+
+const _A0_600_DPI: (u32, u32) = (19866, 28087);
+const A1_600_DPI:  (u32, u32) = (14043, 19866);
+const _A2_600_DPI: (u32, u32) = (9933 , 14043);
+const _A3_600_DPI: (u32, u32) = (7016 , 9933);
+const _A4_600_DPI: (u32, u32) = (4960 , 7016);
+
 const REELS_WIDTH: usize = 506;
 const REELS_HEIGHT: usize = 900;
-const MAP_WIDTH: usize = 400;
-const MAP_HEIGHT: usize = 400;
+const MAP_WIDTH: usize = 600;
+const MAP_HEIGHT: usize = 600;
 const DIAG_WIDTH: usize = 300;
 const DIAG_HEIGHT: usize = 100;
 const SCREEN_WIDTH: usize = 900;
 const SCREEN_HEIGHT: usize = 900;
-const WIDTH: usize = REELS_WIDTH;
-const HEIGHT: usize = REELS_HEIGHT;
+const WIDTH: usize = SCREEN_WIDTH;
+const HEIGHT: usize = SCREEN_HEIGHT;
 const FIRST_DRAW_SIZE: usize = 9_000_000;
 const MIN_NUM_STEPS: usize = 200_000;
 
 fn main() {
     // Create parameters for the clifford attractor
-    let mut clifford: CliffordAttractor = CliffordAttractor::new(vec![ -1.4, 1.6, 1.0, 0.7 ]);
-    clifford.to_file(format!(
-            "cache/clifford/{}-a={}-b={}-c={}-d={}.txt",
-            CliffordAttractor::NAME, clifford.a, clifford.b, clifford.c, clifford.d
-            ).to_string());
-
     let mut specials = get_specials();
+    let mut clifford: CliffordAttractor = CliffordAttractor::new(vec![ -1.4, 1.6, 1.0, 0.7 ]);
+    if let Some(ref specials) = specials {
+        let mut rng = rand::thread_rng();
+        let special_idx = rng.gen_range(0..specials.len());
+        clifford.set_params(vec![
+            Some(specials[special_idx][0]),
+            Some(specials[special_idx][1]),
+            Some(specials[special_idx][2]),
+            Some(specials[special_idx][3]),
+        ]);
+    }
+    // clifford.to_file(format!(
+    //         "cache/clifford/{}-a={}-b={}-c={}-d={}.txt",
+    //         CliffordAttractor::NAME, clifford.a, clifford.b, clifford.c, clifford.d
+    //         ).to_string());
 
     let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
     let mut window = Window::new(
@@ -216,20 +229,22 @@ fn main() {
             action: Box::new(|clifford, _buffer, _keys, lch, _specials, _decay_factor| {
                 let filename = format!("cache/clifford/a={}_b={}_c={}_d={}_iters={}.png", clifford.a, clifford.b, clifford.c, clifford.d, clifford.history.len());
                 print!("Saving data to {}...", filename);
-                let mut image: RgbImage = ImageBuffer::new(7000, 7000);
-                while clifford.history.len() < 10_000_000 {
+                let mut image: RgbImage = ImageBuffer::new(A1_600_DPI.0, A1_600_DPI.1);
+                while clifford.history.len() < 20_000_000 {
                     clifford.step(1_000_000);
                 }
-                let densities = clifford.get_densities(7000, 7000);
+                let densities = clifford.get_densities(A1_600_DPI.0 as usize, A1_600_DPI.1 as usize);
                 for (i, val) in densities.iter().enumerate() {
                     let packed = hsla_to_u32(
                         val * lch.hue_slope + lch.hue_intercept,
                         val * lch.chroma_slope + lch.chroma_intercept,
-                        val.powf(0.3) * lch.light_slope + lch.light_intercept,
+                        // The lightness is inversely proportional to the size of of the grid, so
+                        // adjust the lightness power accordingly
+                        val.powf(0.1) * lch.light_slope + lch.light_intercept,
                         0.0,
                     );
-                    let x = i % 7000;
-                    let y = i / 7000;
+                    let x = i % A1_600_DPI.0 as usize;
+                    let y = i / A1_600_DPI.0 as usize;
                     let (_a, r, g, b) = u32_to_argb(packed);
                     image.put_pixel(x as u32, y as u32, image::Rgb([r, g, b]));
                 }
@@ -373,7 +388,7 @@ fn main() {
         }
         if map_window.is_open() {
             let mouse_pos = map_window.get_mouse_pos(MouseMode::Discard);
-            let new_params = update_map(&mut map_buf, &clifford, &specials, &mouse_pos, map_window.get_mouse_down(MouseButton::Left));
+            let new_params = update_map(&mut map_buf, &clifford, &specials, &mouse_pos, map_window.get_mouse_down(MouseButton::Left), &mut map_window);
             map_window.update_with_buffer(&map_buf, MAP_WIDTH, MAP_HEIGHT).unwrap();
             // Only update the attractor if >0 of the parameters have changed
             if new_params.iter().any(|p| p.is_some()) {
@@ -398,20 +413,33 @@ fn main() {
     }
 }
 
-fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &Option<Vec<Vec<f64>>>, mouse_pos: &Option<(f32, f32)>, mouse_down: bool) -> Vec<Option<f64>>{
+fn update_map(
+    map_buf: &mut Vec<u32>,
+    clifford: &CliffordAttractor,
+    specials: &Option<Vec<Vec<f64>>>,
+    mouse_pos: &Option<(f32, f32)>,
+    mouse_down: bool,
+    map_window: &mut Window
+) -> Vec<Option<f64>>{
+    let color_axes = argb_to_u32(0, 40, 40, 40);
+    let color_specials = argb_to_u32(0, 50, 50, 50);
+    let color_specials_exact = argb_to_u32(0, 0, 255, 0);
+    let color_crosshairs = argb_to_u32(0, 100, 100, 100);
+    let color_crosshairs_mouse = argb_to_u32(0, 150, 150, 150);
+
     let axes = vec![
-        (clifford.a, clifford.b), (clifford.a, clifford.d),
-        (clifford.c, clifford.b), (clifford.c, clifford.d),
+        (clifford.a, clifford.b), (clifford.c, clifford.b),
+        (clifford.a, clifford.d), (clifford.c, clifford.d),
     ];
     // Erase everything, we want to start from a blank canvas
     map_buf.fill(0);
     let mut returner = vec![None; 4];
     // Draw the axes, and the specially marked points on those axes
-    for (i, ax) in axes.iter().enumerate() {
+    for (plt_idx, ax) in axes.iter().enumerate() {
         // Figure out the topleft pixel coordinate for the current axis
         let topleft = (
-            (0.5 * MAP_WIDTH as f64 * if i % 2 == 1 {1.0} else {0.0}) as usize,
-            (0.5 * MAP_HEIGHT as f64 * if i / 2 == 1 {1.0} else {0.0}) as usize,
+            (0.5 * MAP_WIDTH as f64 * if plt_idx % 2 == 1 {1.0} else {0.0}) as usize,
+            (0.5 * MAP_HEIGHT as f64 * if plt_idx / 2 == 1 {1.0} else {0.0}) as usize,
         );
         let botright = (
             (topleft.0 as f64 + 0.5 * MAP_WIDTH as f64) as usize,
@@ -425,38 +453,81 @@ fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &O
         // Draw the axes
         let zero_x = from_range_to_domain(0.0, -5.0, 5.0, topleft.0 as f64, topleft.0 as f64 + 0.5 * MAP_WIDTH as f64) as usize;
         let zero_y = from_range_to_domain(0.0, -5.0, 5.0, topleft.1 as f64, topleft.1 as f64 + 0.5 * MAP_WIDTH as f64) as usize;
-        for x in 0..((0.5 * MAP_WIDTH as f64) as usize) {
-            map_buf[xy2idx(x + topleft.0, zero_y, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 40, 40, 40);
+        let x_border = 0.01 * MAP_WIDTH as f64;
+        for x in (x_border as usize)..((0.5 * MAP_WIDTH as f64 - x_border) as usize) {
+            map_buf[xy2idx(x + topleft.0, zero_y, MAP_WIDTH, MAP_HEIGHT)] = color_axes;
         }
-        for y in 0..((0.5 * MAP_HEIGHT as f64) as usize) {
-            map_buf[xy2idx(zero_x, y + topleft.1, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 40, 40, 40);
+        let y_border = 0.01 * MAP_HEIGHT as f64;
+        for y in (y_border as usize)..((0.5 * MAP_HEIGHT as f64 - y_border) as usize) {
+            map_buf[xy2idx(zero_x, y + topleft.1, MAP_WIDTH, MAP_HEIGHT)] = color_axes;
         }
 
         // Mark all the special points on the map
         if let Some(specials) = specials {
             for special in specials {
-                let mx = from_range_to_domain(special[if i / 2 == 0 {0} else {2}], -5.0, 5.0, topleft.0 as f64, topleft.0 as f64 + 0.5 * MAP_WIDTH as f64);
-                let my = from_range_to_domain(special[if i % 2 == 0 {1} else {3}], -5.0, 5.0, topleft.1 as f64, topleft.1 as f64 + 0.5 * MAP_WIDTH as f64);
-                map_buf[xy2idx(mx as usize, my as usize, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(0, 200, 200, 200);
+                let mx = from_range_to_domain(
+                    // x component is either a (plots 0 and 2) or c (plots 1 and 3)
+                    special[if plt_idx % 2 == 0 {0} else {2}],
+                    -5.0,
+                    5.0,
+                    topleft.0 as f64,
+                    topleft.0 as f64 + 0.5 * MAP_WIDTH as f64
+                );
+                let my = from_range_to_domain(
+                    // y component is either b (plots 0 and 1) or d (plots 2 and 3)
+                    special[if plt_idx / 2 == 0 {1} else {3}],
+                    -5.0,
+                    5.0,
+                    topleft.1 as f64,
+                    topleft.1 as f64 + 0.5 * MAP_WIDTH as f64
+                );
+
+                // 0:(a,b) 1:(c,b)
+                // 2:(a,d) 3:(c,d)
+                let opposite_plot_idx = 3 - plt_idx;
+
+                let x_opp_special = special[if opposite_plot_idx % 2 == 0 {0} else {2}];
+                let x_opp_actual = axes[opposite_plot_idx].0;
+
+                let y_opp_special = special[if opposite_plot_idx / 2 == 0 {1} else {3}];
+                let y_opp_actual = axes[opposite_plot_idx].1;
+
+                let x_dist = (x_opp_actual - x_opp_special).abs();
+                let y_dist = (y_opp_actual - y_opp_special).abs();
+
+                let max_dist = 1.5;
+                if x_dist < 0.1 && y_dist < 0.1 {
+                    // If the attractor is basically exactly on the mark, colour it green
+                    map_buf[xy2idx(mx as usize, my as usize, MAP_WIDTH, MAP_HEIGHT)] = color_specials_exact;
+                } else if x_dist < max_dist && y_dist < max_dist {
+                    // Otherwise, if the attractor is close but not exact, colour it closer to
+                    // white than grey
+                    let normalised_dist = (x_dist * x_dist + y_dist * y_dist).sqrt() / (2_f64.sqrt() * max_dist);
+                    let amount_to_add = (200.0 - 200.0 * normalised_dist) as u8;
+                    map_buf[xy2idx(mx as usize, my as usize, MAP_WIDTH, MAP_HEIGHT)] 
+                        = argb_to_u32(0, 50 + amount_to_add, 50 + amount_to_add, 50 + amount_to_add);
+                } else {
+                    map_buf[xy2idx(mx as usize, my as usize, MAP_WIDTH, MAP_HEIGHT)] = color_specials;
+                }
             }
         }
 
         // Draw the current position, and cross hairs lines marking it's position
-        for x_delta in (-10)..10 {
+        for delta in ((-30)..30).step_by(3) {
+            // But leave the actual centre point unmarked
+            if (delta as i8).abs() < 10 { continue; }
             map_buf[xy2idx(
-                (x as isize + x_delta + MAP_WIDTH as isize) as usize % MAP_WIDTH,
+                (x as isize + delta + MAP_WIDTH as isize) as usize % MAP_WIDTH,
                 y as usize,
                 MAP_WIDTH,
                 MAP_HEIGHT
-            )] = argb_to_u32(0, 150, 150, 150);
-        }
-        for y_delta in (-10)..10 {
+                )] = color_crosshairs;
             map_buf[xy2idx(
                 x as usize,
-                (y as isize + y_delta + MAP_HEIGHT as isize) as usize % MAP_HEIGHT,
+                (y as isize + delta + MAP_HEIGHT as isize) as usize % MAP_HEIGHT,
                 MAP_WIDTH,
                 MAP_HEIGHT
-            )] = argb_to_u32(0, 150, 150, 150);
+                )] = color_crosshairs;
         }
 
         // If the user clicks on this set of axes, change the parameters
@@ -467,6 +538,8 @@ fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &O
             let mouse_in_curr_plot_y = topleft.1 < *mousey as usize
                 && *mousey < botright.1 as f32;
             if mouse_down && mouse_in_curr_plot_x && mouse_in_curr_plot_y {
+                // Use a cross-hair cursor
+                map_window.set_cursor_style(CursorStyle::Crosshair);
                 // Convert pixel-coordinates to parameter-coordinates
                 let param_x = from_range_to_domain(
                     *mousex as f64,
@@ -482,11 +555,14 @@ fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &O
                 );
                 // Resolve parameter values to the correct attractor parameters based on which plot
                 // we're currently resolving
-                let a = if i == 0 || i == 1 { Some(param_x) } else { None };
-                let b = if i == 0 || i == 2 { Some(param_y) } else { None };
-                let c = if i == 2 || i == 3 { Some(param_x) } else { None };
-                let d = if i == 1 || i == 3 { Some(param_y) } else { None };
+                let a = if plt_idx == 0 || plt_idx == 2 { Some(param_x) } else { None };
+                let b = if plt_idx == 0 || plt_idx == 1 { Some(param_y) } else { None };
+                let c = if plt_idx == 1 || plt_idx == 3 { Some(param_x) } else { None };
+                let d = if plt_idx == 2 || plt_idx == 3 { Some(param_y) } else { None };
                 returner = vec![ a, b, c, d ];
+            } else {
+                // Reset the cursor to not be gone
+                map_window.set_cursor_style(CursorStyle::Arrow);
             }
         }
     }
@@ -498,12 +574,12 @@ fn update_map(map_buf: &mut Vec<u32>, clifford: &CliffordAttractor, specials: &O
                 (*mousex as isize + delta + MAP_WIDTH as isize) as usize % MAP_WIDTH,
                 *mousey as usize,
                 MAP_WIDTH, MAP_HEIGHT
-            )] = argb_to_u32(0, 150, 0, 0);
+            )] = color_crosshairs_mouse;
             map_buf[xy2idx(
                 *mousex as usize,
                 (*mousey as isize + delta + MAP_HEIGHT as isize) as usize % MAP_HEIGHT,
                 MAP_WIDTH, MAP_HEIGHT
-            )] = argb_to_u32(0, 150, 0, 0);
+            )] = color_crosshairs_mouse;
         }
     }
     return returner;
