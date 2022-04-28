@@ -154,3 +154,6 @@ See these links for examples of strange attractors.
 ## TODO
 - Add Diagnostics: fractal dimension greater than 1.5 => Chaotic?
 - Add Diagnostics: positive Lyapunov exponent => Chaotic
+- Add a way to create videos
+- Add a way to line up parameter changes with timestamps so that the moving
+  attractors will 'react' in time with the music
