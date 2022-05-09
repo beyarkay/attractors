@@ -13,7 +13,10 @@
 /// - [Catrián Attractors](http://paulbourke.net/fractals/JuanCatrian/)
 /// - [Burke-Shaw Attractors](http://paulbourke.net/fractals/burkeshaw/)
 /// - [Yu-Wang Attractors](http://paulbourke.net/fractals/yuwang/)
-use std::{io::Write, fmt::{Display, self}};
+use std::{
+    fmt::{self, Display},
+    io::Write,
+};
 pub trait Attractor {
     /// A name for the attractor matching [a-zA-Z]+, used when saving a sequence of points to file
     const NAME: &'static str;
@@ -38,7 +41,12 @@ pub trait Attractor {
 
     fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64>;
 
-    fn get_densities_with_border(&mut self, width: usize, height: usize, perc_border: f64) -> Vec<f64>;
+    fn get_densities_with_border(
+        &mut self,
+        width: usize,
+        height: usize,
+        perc_border: f64,
+    ) -> Vec<f64>;
 
     fn reset(&mut self);
 
@@ -105,15 +113,18 @@ pub struct CliffordAttractor {
 
 impl Attractor for CliffordAttractor {
     /// The name used to specify the attractor in text files.
-    const NAME: &'static str= "clifford";
+    const NAME: &'static str = "clifford";
     /// Clifford attractors live in 2 dimensions.
     const DIMENSIONALITY: u8 = 2;
     /// Clifford attractors require 4 parameters.
     const NUM_PARAMETERS: u8 = 4;
 
     fn new(params: Vec<f64>) -> Self {
-        assert!(params.len() == 4,
-        "Clifford Attractors require 4 parameters (a, b, c, d) but you only gave {}", params.len());
+        assert!(
+            params.len() == 4,
+            "Clifford Attractors require 4 parameters (a, b, c, d) but you only gave {}",
+            params.len()
+        );
 
         CliffordAttractor {
             // Create a new Clifford attractor from the vector of parameters `params`
@@ -124,11 +135,11 @@ impl Attractor for CliffordAttractor {
             x: 0.0,
             y: 0.0,
             xmin: -1.0 - params[2].abs(), // min(sin()) - |c| * min(cos())
-            xmax:  1.0 + params[2].abs(), // max(sin()) + |c| * max(cos())
+            xmax: 1.0 + params[2].abs(),  // max(sin()) + |c| * max(cos())
             ymin: -1.0 - params[3].abs(), // min(sin()) - |d| * min(cos())
-            ymax:  1.0 + params[3].abs(), // max(sin()) + |d| * max(cos())
+            ymax: 1.0 + params[3].abs(),  // max(sin()) + |d| * max(cos())
             history: vec![vec![0.0, 0.0]],
-            param_history: vec![params]
+            param_history: vec![params],
         }
     }
 
@@ -147,7 +158,7 @@ impl Attractor for CliffordAttractor {
         for _ in 1..num_steps {
             xx = (self.a * yy).sin() + self.c * (self.a * xx).cos();
             yy = (self.b * xx).sin() + self.d * (self.b * yy).cos();
-            self.history.push(vec![ xx, yy ]);
+            self.history.push(vec![xx, yy]);
         }
         self.x = xx;
         self.y = yy;
@@ -158,7 +169,6 @@ impl Attractor for CliffordAttractor {
         // self.param_history = vec![vec![self.a, self.b, self.c, self.d]];
     }
 
-
     /// Set the parameters a, b, c, d of the Clifford attractor and recalculate the x, y min and max
     /// values as needed.
     ///
@@ -166,42 +176,55 @@ impl Attractor for CliffordAttractor {
     /// 4 If an item in the vector is `Some`, then that item will be set to the value of a, b, c,
     /// or d based on the index of the item
     fn set_params(&mut self, params: Vec<Option<f64>>) {
-        assert!(params.len() == 4,
-        "Clifford Attractors require 4 parameters (a, b, c, d) but you only gave {}", params.len());
+        assert!(
+            params.len() == 4,
+            "Clifford Attractors require 4 parameters (a, b, c, d) but you only gave {}",
+            params.len()
+        );
         // Go through each parameter and check if it needs to be updated
-        if let Some(a) = params[0] { self.a = a; }
-        if let Some(b) = params[1] { self.b = b; }
+        if let Some(a) = params[0] {
+            self.a = a;
+        }
+        if let Some(b) = params[1] {
+            self.b = b;
+        }
         if let Some(c) = params[2] {
             self.c = c;
             // Recalculate the xmin and xmax values
             self.xmin = -1.0 - c.abs();
-            self.xmax =  1.0 + c.abs();
+            self.xmax = 1.0 + c.abs();
         }
         if let Some(d) = params[3] {
             self.d = d;
             // Recalculate the ymin and ymax values
             self.ymin = -1.0 - d.abs();
-            self.ymax =  1.0 + d.abs();
+            self.ymax = 1.0 + d.abs();
         }
-        self.param_history.push(vec![self.a, self.b, self.c, self.d]);
+        self.param_history
+            .push(vec![self.a, self.b, self.c, self.d]);
         println!("{:#}", self);
     }
 
-    /// Given a certain `width` and `height` in pixels, return the density of the 
+    /// Given a certain `width` and `height` in pixels, return the density of the
     /// pixel at `index`, where `index` is equal to:
     /// ```
     ///     index = x_position + width * y_position
     /// ```
     ///
     /// The returned density has been normalised to be in the range [0.0, 1.0]
-    /// where 1.0 indicates that pixel was the most frequently landed on, and 
+    /// where 1.0 indicates that pixel was the most frequently landed on, and
     /// 0.0 indicates that pixel was never landed on.
-    // TODO: add padding argument to display the attractor on only part of the 
+    // TODO: add padding argument to display the attractor on only part of the
     // buffer
     fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64> {
         self.get_densities_with_border(width, height, 0.0)
     }
-    fn get_densities_with_border(&mut self, width: usize, height: usize, perc_border: f64) -> Vec<f64> {
+    fn get_densities_with_border(
+        &mut self,
+        width: usize,
+        height: usize,
+        perc_border: f64,
+    ) -> Vec<f64> {
         let xrange = self.xmax - self.xmin;
         let yrange = self.ymax - self.ymin;
         let mut densities = vec![0.0; width * height];
@@ -212,17 +235,19 @@ impl Attractor for CliffordAttractor {
         for pos in self.history.iter() {
             let x_full = width as f64 * (pos[0] - self.xmin) / xrange;
             let y_full = height as f64 * (pos[1] - self.ymin) / yrange;
-            let x = (x_full * (1.0 - 2.0 * perc_border) + width as f64 * perc_border).floor() as usize;
-            let y = (y_full * (1.0 - 2.0 * perc_border) + height as f64 * perc_border).floor() as usize;
+            let x =
+                (x_full * (1.0 - 2.0 * perc_border) + width as f64 * perc_border).floor() as usize;
+            let y =
+                (y_full * (1.0 - 2.0 * perc_border) + height as f64 * perc_border).floor() as usize;
             let i = x + y * width;
             densities[i] += 1.0;
             if densities[i] > densities_max {
                 densities_max = densities[i];
             }
         }
-        // Then loop over it again, to divide each of the items in the densities 
+        // Then loop over it again, to divide each of the items in the densities
         // by the maximum
-        for idx in &mut densities{
+        for idx in &mut densities {
             *idx /= densities_max;
         }
         return densities;
@@ -233,15 +258,22 @@ impl Attractor for CliffordAttractor {
         let mut file = std::fs::File::create(filename).expect("Failed to create file.");
         // The preamble contains various things defining the attractor in question, and every line
         // in the preamble starts with a `#`
-        let preamble: String = format!("#{},{},{}\n#a={}\n#b={}\n#c={}\n#d={}\n",
-                                        CliffordAttractor::NAME,
-                                        CliffordAttractor::NUM_PARAMETERS,
-                                        CliffordAttractor::DIMENSIONALITY,
-                                        self.a, self.b, self.c, self.d);
-        file.write_all(preamble.as_bytes()).expect("Failed to preamble write to file.");
+        let preamble: String = format!(
+            "#{},{},{}\n#a={}\n#b={}\n#c={}\n#d={}\n",
+            CliffordAttractor::NAME,
+            CliffordAttractor::NUM_PARAMETERS,
+            CliffordAttractor::DIMENSIONALITY,
+            self.a,
+            self.b,
+            self.c,
+            self.d
+        );
+        file.write_all(preamble.as_bytes())
+            .expect("Failed to preamble write to file.");
         for (i, item) in self.history.iter().enumerate() {
             let position: String = format!("{}:{},{}\n", i, item[0], item[1]);
-            file.write_all(position.as_bytes()).expect("Failed to write position to file.");
+            file.write_all(position.as_bytes())
+                .expect("Failed to write position to file.");
         }
     }
 }
@@ -295,15 +327,18 @@ pub struct DeJongAttractor {
 
 impl Attractor for DeJongAttractor {
     /// The name used to specify the attractor in text files.
-    const NAME: &'static str= "dejong";
+    const NAME: &'static str = "dejong";
     /// DeJong attractors live in 2 dimensions.
     const DIMENSIONALITY: u8 = 2;
     /// DeJong attractors require 4 parameters.
     const NUM_PARAMETERS: u8 = 4;
 
     fn new(params: Vec<f64>) -> Self {
-        assert!(params.len() == 4,
-        "DeJong Attractors require 4 parameters (a, b, c, d) but you only gave {}", params.len());
+        assert!(
+            params.len() == 4,
+            "DeJong Attractors require 4 parameters (a, b, c, d) but you only gave {}",
+            params.len()
+        );
 
         DeJongAttractor {
             // Create a new DeJong attractor from the vector of parameters `params`
@@ -314,10 +349,10 @@ impl Attractor for DeJongAttractor {
             x: 0.0,
             y: 0.0,
             xmin: -2.0, // min(sin()) - min(cos())
-            xmax:  2.0, // max(sin()) + max(cos())
+            xmax: 2.0,  // max(sin()) + max(cos())
             ymin: -2.0, // min(sin()) - min(cos())
-            ymax:  2.0, // max(sin()) + max(cos())
-            history: vec![vec![0.0, 0.0]]
+            ymax: 2.0,  // max(sin()) + max(cos())
+            history: vec![vec![0.0, 0.0]],
         }
     }
 
@@ -334,12 +369,12 @@ impl Attractor for DeJongAttractor {
         for _ in 1..num_steps {
             self.x = (self.a * self.y).sin() - (self.b * self.x).cos();
             self.y = (self.c * self.x).sin() - (self.d * self.y).cos();
-            self.history.push(vec![ self.x, self.y ]);
+            self.history.push(vec![self.x, self.y]);
         }
     }
 
     fn reset(&mut self) {
-        self.history =  vec![vec![0.0, 0.0]];
+        self.history = vec![vec![0.0, 0.0]];
     }
 
     /// Set the parameters a, b, c, d of the DeJong attractor and recalculate the x, y min and max
@@ -349,19 +384,35 @@ impl Attractor for DeJongAttractor {
     /// 4 If an item in the vector is `Some`, then that item will be set to the value of a, b, c,
     /// or d based on the index of the item
     fn set_params(&mut self, params: Vec<Option<f64>>) {
-        assert!(params.len() == 4,
-        "DeJong Attractors require 4 parameters (a, b, c, d) but you only gave {}", params.len());
+        assert!(
+            params.len() == 4,
+            "DeJong Attractors require 4 parameters (a, b, c, d) but you only gave {}",
+            params.len()
+        );
         // Go through each parameter and check if it needs to be updated
-        if let Some(a) = params[0] { self.a = a; }
-        if let Some(b) = params[1] { self.b = b; }
-        if let Some(c) = params[2] { self.c = c; }
-        if let Some(d) = params[3] { self.d = d; }
+        if let Some(a) = params[0] {
+            self.a = a;
+        }
+        if let Some(b) = params[1] {
+            self.b = b;
+        }
+        if let Some(c) = params[2] {
+            self.c = c;
+        }
+        if let Some(d) = params[3] {
+            self.d = d;
+        }
     }
 
     fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64> {
         self.get_densities_with_border(width, height, 0.0)
     }
-    fn get_densities_with_border(&mut self, width: usize, height: usize, _perc_border: f64) -> Vec<f64> {
+    fn get_densities_with_border(
+        &mut self,
+        width: usize,
+        height: usize,
+        _perc_border: f64,
+    ) -> Vec<f64> {
         let xrange = self.xmax - self.xmin;
         let yrange = self.ymax - self.ymin;
         let mut densities = vec![0.0; width * height];
@@ -378,9 +429,9 @@ impl Attractor for DeJongAttractor {
                 densities_max = densities[i];
             }
         }
-        // Then loop over it again, to divide each of the items in the densities 
+        // Then loop over it again, to divide each of the items in the densities
         // by the maximum
-        for idx in &mut densities{
+        for idx in &mut densities {
             *idx /= densities_max;
         }
         return densities;
@@ -391,15 +442,22 @@ impl Attractor for DeJongAttractor {
         let mut file = std::fs::File::create(filename).expect("Failed to create file.");
         // The preamble contains various things defining the attractor in question, and every line
         // in the preamble starts with a `#`
-        let preamble: String = format!("#{},{},{}\n#a={}\n#b={}\n#c={}\n#d={}\n",
-                                        DeJongAttractor::NAME,
-                                        DeJongAttractor::NUM_PARAMETERS,
-                                        DeJongAttractor::DIMENSIONALITY,
-                                        self.a, self.b, self.c, self.d);
-        file.write_all(preamble.as_bytes()).expect("Failed to preamble write to file.");
+        let preamble: String = format!(
+            "#{},{},{}\n#a={}\n#b={}\n#c={}\n#d={}\n",
+            DeJongAttractor::NAME,
+            DeJongAttractor::NUM_PARAMETERS,
+            DeJongAttractor::DIMENSIONALITY,
+            self.a,
+            self.b,
+            self.c,
+            self.d
+        );
+        file.write_all(preamble.as_bytes())
+            .expect("Failed to preamble write to file.");
         for (i, item) in self.history.iter().enumerate() {
             let position: String = format!("{}:{},{}\n", i, item[0], item[1]);
-            file.write_all(position.as_bytes()).expect("Failed to write position to file.");
+            file.write_all(position.as_bytes())
+                .expect("Failed to write position to file.");
         }
     }
 }
@@ -408,9 +466,9 @@ impl Attractor for DeJongAttractor {
 mod tests {
     use std::fs;
 
+    use super::*;
     use rand::Rng;
     use test::Bencher;
-    use super::*;
 
     #[bench]
     fn bench_clifford_write_to_file_10k(b: &mut Bencher) {
@@ -423,8 +481,12 @@ mod tests {
         ]);
 
         let fname = format!(
-            "cache/clifford/{}-a={}-b={}-c={}-d={}.tmp", 
-            CliffordAttractor::NAME, clifford.a, clifford.b, clifford.c, clifford.d
+            "cache/clifford/{}-a={}-b={}-c={}-d={}.tmp",
+            CliffordAttractor::NAME,
+            clifford.a,
+            clifford.b,
+            clifford.c,
+            clifford.d
         );
 
         clifford.step(10_000);
@@ -443,6 +505,6 @@ mod tests {
             rng.gen_range(-1.0..1.0),
             rng.gen_range(-1.0..1.0),
         ]);
-        b.iter(|| clifford.step(10_000) );
+        b.iter(|| clifford.step(10_000));
     }
 }
