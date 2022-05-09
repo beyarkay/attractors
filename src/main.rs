@@ -408,7 +408,7 @@ fn update_map(
     let color_axes = argb_to_u32(0, 40, 40, 40);
     let color_specials = argb_to_u32(0, 50, 50, 50);
     let color_specials_exact = argb_to_u32(0, 0, 255, 0);
-    let color_crosshairs = argb_to_u32(0, 100, 100, 100);
+    let color_crosshairs = argb_to_u32(0, 150, 150, 150);
     let color_crosshairs_mouse = argb_to_u32(0, 150, 150, 150);
 
     let axes = vec![
