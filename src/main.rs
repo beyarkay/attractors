@@ -233,7 +233,7 @@ fn main() {
                 while clifford.history.len() < 20_000_000 {
                     clifford.step(1_000_000);
                 }
-                let densities = clifford.get_densities(A1_600_DPI.0 as usize, A1_600_DPI.1 as usize);
+                let densities = clifford.get_densities_with_border(size.0 as usize, size.1 as usize, 0.05);
                 for (i, val) in densities.iter().enumerate() {
                     let packed = hsla_to_u32(
                         val * lch.hue_slope + lch.hue_intercept,
@@ -375,7 +375,7 @@ fn main() {
         if clifford.history.len() < 20_000_000 {
             clifford.step(MIN_NUM_STEPS);
         }
-        densities = clifford.get_densities(WIDTH, HEIGHT);
+        densities = clifford.get_densities_with_border(WIDTH, HEIGHT, 0.05);
         let avg_density = densities.iter().sum::<f64>() / densities.len() as f64;
         for (i, item) in buffer.iter_mut().enumerate() {
             prev_densities[i] = noodle_factor * densities[i] + (1.0 - noodle_factor) * prev_densities[i];

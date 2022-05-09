@@ -38,6 +38,8 @@ pub trait Attractor {
 
     fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64>;
 
+    fn get_densities_with_border(&mut self, width: usize, height: usize, perc_border: f64) -> Vec<f64>;
+
     fn reset(&mut self);
 
     /// Save the attractor to a file.
@@ -197,6 +199,9 @@ impl Attractor for CliffordAttractor {
     // TODO: add padding argument to display the attractor on only part of the 
     // buffer
     fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64> {
+        self.get_densities_with_border(width, height, 0.0)
+    }
+    fn get_densities_with_border(&mut self, width: usize, height: usize, perc_border: f64) -> Vec<f64> {
         let xrange = self.xmax - self.xmin;
         let yrange = self.ymax - self.ymin;
         let mut densities = vec![0.0; width * height];
@@ -205,8 +210,10 @@ impl Attractor for CliffordAttractor {
         // First loop over the history, flooring all the values to find
         // a histogram of how many times the attractor hit each xy point
         for pos in self.history.iter() {
-            let x = (width as f64 * (pos[0] - self.xmin) / xrange).floor() as usize;
-            let y = (height as f64 * (pos[1] - self.ymin) / yrange).floor() as usize;
+            let x_full = width as f64 * (pos[0] - self.xmin) / xrange;
+            let y_full = height as f64 * (pos[1] - self.ymin) / yrange;
+            let x = (x_full * (1.0 - 2.0 * perc_border) + width as f64 * perc_border).floor() as usize;
+            let y = (y_full * (1.0 - 2.0 * perc_border) + height as f64 * perc_border).floor() as usize;
             let i = x + y * width;
             densities[i] += 1.0;
             if densities[i] > densities_max {
@@ -352,6 +359,9 @@ impl Attractor for DeJongAttractor {
     }
 
     fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64> {
+        self.get_densities_with_border(width, height, 0.0)
+    }
+    fn get_densities_with_border(&mut self, width: usize, height: usize, _perc_border: f64) -> Vec<f64> {
         let xrange = self.xmax - self.xmin;
         let yrange = self.ymax - self.ymin;
         let mut densities = vec![0.0; width * height];
