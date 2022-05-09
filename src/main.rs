@@ -337,21 +337,21 @@ fn main() {
     ).unwrap();
     map_window.set_position(0, 0);
 
-    let mut diagnostics = Window::new(
-        "Diagnostics",
-        DIAG_WIDTH,
-        DIAG_HEIGHT,
-        WindowOptions {
-            ..WindowOptions::default()
-        },
-    ).unwrap();
-    diagnostics.set_position(0, 65 + MAP_HEIGHT as isize);
+    // let mut diagnostics = Window::new(
+    //     "Diagnostics",
+    //     DIAG_WIDTH,
+    //     DIAG_HEIGHT,
+    //     WindowOptions {
+    //         ..WindowOptions::default()
+    //     },
+    // ).unwrap();
+    // diagnostics.set_position(0, 65 + MAP_HEIGHT as isize);
     window.set_position(MAP_WIDTH as isize, 0);
 
     clifford.step(MIN_NUM_STEPS);
     let mut densities;
     let mut prev_densities = vec![0f64; WIDTH * HEIGHT];
-    let mut diag_buf = vec![0u32; DIAG_WIDTH * DIAG_HEIGHT];
+    // let mut diag_buf = vec![0u32; DIAG_WIDTH * DIAG_HEIGHT];
     let mut map_buf = vec![0u32; MAP_WIDTH * MAP_HEIGHT];
     while window.is_open() && !window.is_key_down(Key::Escape) {
         // Then use those generated points to draw onto the buffer in
@@ -390,10 +390,10 @@ fn main() {
         }
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
 
-        if diagnostics.is_open() {
-            update_diagnostics(&mut diag_buf, &clifford, avg_density);
-            diagnostics.update_with_buffer(&diag_buf, DIAG_WIDTH, DIAG_HEIGHT).unwrap();
-        }
+        // if diagnostics.is_open() {
+        //     update_diagnostics(&mut diag_buf, &clifford, avg_density);
+        //     diagnostics.update_with_buffer(&diag_buf, DIAG_WIDTH, DIAG_HEIGHT).unwrap();
+        // }
     }
 }
 
@@ -577,32 +577,32 @@ fn from_range_to_domain(x: f64, lower_from: f64, upper_from: f64, lower_to: f64,
     return ((clamp(lower_from, x, upper_from) - lower_from) / (upper_from - lower_from)) * (upper_to - lower_to) + lower_to;
 }
 
-fn update_diagnostics(diag_buf: &mut Vec<u32>, clifford: &CliffordAttractor, avg_density: f64) {
-    for param in clifford.param_history.iter() {
-        let a_in_bounds = -5.0 <= param[0] && param[0] < 5.0;
-        let b_in_bounds = -5.0 <= param[1] && param[1] < 5.0;
-        let c_in_bounds = -5.0 <= param[2] && param[2] < 5.0;
-        let d_in_bounds = -5.0 <= param[3] && param[3] < 5.0;
-        if  a_in_bounds && b_in_bounds && c_in_bounds && d_in_bounds {
-            let a = (param[0] + 5.0) / 10.0 * 100.0; // horizontal axis
-            let b = (param[1] + 5.0) / 10.0 * 100.0; // vertical axis
-            let c = ((param[2] + 5.0) / 10.0 * 200.0 + 50.0) as u8; // Red colour axis
-            let d = ((param[3] + 5.0) / 10.0 * 200.0 + 50.0) as u8; // Green color axis
-            let pos = b as usize * DIAG_WIDTH + a as usize;
-            diag_buf[pos] = argb_to_u32(0, c, d, 255);
-        }
-    }
-    let x = DIAG_WIDTH / 3 + (clifford.param_history.len() % ((DIAG_WIDTH * 2) / 3));
-    for y in 0..DIAG_HEIGHT {
-        let pos = y * DIAG_WIDTH + x as usize;
-        diag_buf[pos] = argb_to_u32(0, 0, 0, 0);
-    }
-    // Raise avg_density to the power of 0.3 because there are _loads_ of small values
-    // (1e-3 < value < 1e-1) which are still meaningful but get lost
-    let y = (avg_density.powf(0.3) * DIAG_HEIGHT as f64 ) as usize;
-    let pos = y * DIAG_WIDTH + x as usize;
-    diag_buf[pos] = argb_to_u32(0, 255, 255, 255);
-}
+// fn update_diagnostics(diag_buf: &mut Vec<u32>, clifford: &CliffordAttractor, avg_density: f64) {
+//     for param in clifford.param_history.iter() {
+//         let a_in_bounds = -5.0 <= param[0] && param[0] < 5.0;
+//         let b_in_bounds = -5.0 <= param[1] && param[1] < 5.0;
+//         let c_in_bounds = -5.0 <= param[2] && param[2] < 5.0;
+//         let d_in_bounds = -5.0 <= param[3] && param[3] < 5.0;
+//         if  a_in_bounds && b_in_bounds && c_in_bounds && d_in_bounds {
+//             let a = (param[0] + 5.0) / 10.0 * 100.0; // horizontal axis
+//             let b = (param[1] + 5.0) / 10.0 * 100.0; // vertical axis
+//             let c = ((param[2] + 5.0) / 10.0 * 200.0 + 50.0) as u8; // Red colour axis
+//             let d = ((param[3] + 5.0) / 10.0 * 200.0 + 50.0) as u8; // Green color axis
+//             let pos = b as usize * DIAG_WIDTH + a as usize;
+//             diag_buf[pos] = argb_to_u32(0, c, d, 255);
+//         }
+//     }
+//     let x = DIAG_WIDTH / 3 + (clifford.param_history.len() % ((DIAG_WIDTH * 2) / 3));
+//     for y in 0..DIAG_HEIGHT {
+//         let pos = y * DIAG_WIDTH + x as usize;
+//         diag_buf[pos] = argb_to_u32(0, 0, 0, 0);
+//     }
+//     // Raise avg_density to the power of 0.3 because there are _loads_ of small values
+//     // (1e-3 < value < 1e-1) which are still meaningful but get lost
+//     let y = (avg_density.powf(0.3) * DIAG_HEIGHT as f64 ) as usize;
+//     let pos = y * DIAG_WIDTH + x as usize;
+//     diag_buf[pos] = argb_to_u32(0, 255, 255, 255);
+// }
 
 fn u32_to_argb(packed: u32) -> (u8, u8, u8, u8) {
     let a = ((0xFF_00_00_00 & packed) >> 24) as u8;
