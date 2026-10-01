@@ -789,3 +789,231 @@ fn from_range_to_domain(
         * (upper_to - lower_to)
         + lower_to
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::attractors::{CliffordAttractor, HenonAttractor, SprottQuadraticAttractor};
+    use crate::render::colour;
+
+    /// An empty cache directory unique to this test
+    fn temp_cache(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("attractors-ui-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn explorer<A: Attractor>(name: &str) -> (Explorer<A>, Buffers) {
+        let explorer = Explorer::<A>::with_params(&temp_cache(name), A::DEFAULT_PARAMS);
+        (explorer, Buffers::default())
+    }
+
+    fn press<A: Attractor>(e: &mut Explorer<A>, b: &mut Buffers, input: Input) -> FrameResult {
+        e.frame(&input, b)
+    }
+
+    fn map_pixel(b: &Buffers, x: usize, y: usize) -> u32 {
+        b.map[y * MAP_WIDTH + x]
+    }
+
+    /// Where Clifford's default a, b are drawn in the top left plot of the map
+    fn default_position_on_map() -> (usize, usize) {
+        let [a, b, _, _] = CliffordAttractor::DEFAULT_PARAMS else {
+            unreachable!()
+        };
+        let (x, y) = plot_rect(0).param_to_px(*a, *b, CliffordAttractor::PARAM_RANGE);
+        (x as usize, y as usize)
+    }
+
+    fn assert_params(actual: &[f64], expected: &[f64]) {
+        assert_eq!(actual.len(), expected.len());
+        for (a, e) in actual.iter().zip(expected) {
+            assert!((a - e).abs() < 1e-9, "{actual:?} vs {expected:?}");
+        }
+    }
+
+    #[test]
+    fn preview_shows_the_attractor() {
+        let (mut e, mut b) = explorer::<CliffordAttractor>("preview");
+        press(&mut e, &mut b, Input::default());
+        let [r, g, bl] = colour(0.0, &e.look());
+        let background = rgb(r, g, bl);
+        let lit = b.preview.iter().filter(|&&p| p != background).count();
+        let fraction = lit as f64 / b.preview.len() as f64;
+        assert!(fraction > 0.05 && fraction < 0.9, "{fraction}");
+    }
+
+    #[test]
+    fn nudge_keys_change_the_right_parameter() {
+        let (mut e, mut b) = explorer::<CliffordAttractor>("nudge");
+        press(&mut e, &mut b, Input::keys(&[Key::U]));
+        press(&mut e, &mut b, Input::keys(&[Key::K]));
+        press(&mut e, &mut b, Input::keys(&[Key::Semicolon]));
+        assert_params(e.attractor().params(), &[-1.3, 1.5, 1.0, 0.6]);
+    }
+
+    #[test]
+    fn step_size_key_scales_the_nudge() {
+        let (mut e, mut b) = explorer::<CliffordAttractor>("step");
+        press(&mut e, &mut b, Input::keys(&[Key::T]).shifted());
+        press(&mut e, &mut b, Input::keys(&[Key::O]));
+        assert_params(e.attractor().params(), &[-1.4, 1.6, 1.01, 0.7]);
+        assert!(e.title().contains("step 0.01"), "{}", e.title());
+    }
+
+    #[test]
+    fn brackets_slide_the_parameter_window() {
+        let (mut e, mut b) = explorer::<SprottQuadraticAttractor>("window");
+        let defaults = SprottQuadraticAttractor::DEFAULT_PARAMS;
+        press(&mut e, &mut b, Input::keys(&[Key::RightBracket]));
+        press(&mut e, &mut b, Input::keys(&[Key::U]));
+        let mut expected = defaults.to_vec();
+        expected[1] += 0.1;
+        assert_params(e.attractor().params(), &expected);
+
+        // The window stops when its last parameter is a12
+        for _ in 0..20 {
+            press(&mut e, &mut b, Input::keys(&[Key::RightBracket]));
+        }
+        press(&mut e, &mut b, Input::keys(&[Key::P]));
+        expected[11] += 0.1;
+        assert_params(e.attractor().params(), &expected);
+        assert!(
+            e.title().contains("a12") && !e.title().contains("a8 "),
+            "{}",
+            e.title()
+        );
+
+        for _ in 0..20 {
+            press(&mut e, &mut b, Input::keys(&[Key::LeftBracket]));
+        }
+        assert!(
+            e.title().contains("a1 ") && !e.title().contains("a5 "),
+            "{}",
+            e.title()
+        );
+    }
+
+    #[test]
+    fn keys_for_missing_parameters_do_nothing() {
+        let (mut e, mut b) = explorer::<HenonAttractor>("missing");
+        press(
+            &mut e,
+            &mut b,
+            Input::keys(&[Key::L, Key::O, Key::RightBracket]),
+        );
+        assert_params(e.attractor().params(), HenonAttractor::DEFAULT_PARAMS);
+    }
+
+    #[test]
+    fn clicking_the_map_sets_that_plots_parameters() {
+        let (mut e, mut b) = explorer::<CliffordAttractor>("click");
+        // The middle of the top left plot is a = 0, b = 0
+        press(&mut e, &mut b, Input::click_map(150.0, 150.0));
+        assert_params(e.attractor().params(), &[0.0, 0.0, 1.0, 0.7]);
+        // A quarter of the way down the top right plot is b = -2.5, and its middle is c = 0
+        press(&mut e, &mut b, Input::click_map(450.0, 75.0));
+        assert_params(e.attractor().params(), &[0.0, -2.5, 0.0, 0.7]);
+    }
+
+    #[test]
+    fn map_draws_crosshairs_at_the_parameters() {
+        let (mut e, mut b) = explorer::<CliffordAttractor>("crosshairs");
+        press(&mut e, &mut b, Input::default());
+        // The centre of the crosshair on a, b in the top left plot is left clear
+        let (x, y) = default_position_on_map();
+        assert_eq!(map_pixel(&b, x + 12, y), MAP_CROSSHAIRS);
+        assert_eq!(map_pixel(&b, x, y - 12), MAP_CROSSHAIRS);
+        assert_ne!(map_pixel(&b, x, y), MAP_CROSSHAIRS);
+    }
+
+    #[test]
+    fn map_only_draws_plots_for_existing_parameters() {
+        let (mut e, mut b) = explorer::<HenonAttractor>("hover");
+        let hover = |x, y| Input {
+            map_mouse: Some((x, y)),
+            ..Input::default()
+        };
+        assert!(press(&mut e, &mut b, hover(150.0, 150.0)).map_crosshair);
+        assert!(!press(&mut e, &mut b, hover(450.0, 450.0)).map_crosshair);
+        assert!(!press(&mut e, &mut b, Input::default()).map_crosshair);
+        // Henon has two parameters, so the bottom right plot stays empty
+        assert_eq!(map_pixel(&b, 450, 500), MAP_BACKGROUND);
+    }
+
+    #[test]
+    fn palette_contrast_and_kind_keys() {
+        let (mut e, mut b) = explorer::<CliffordAttractor>("look");
+        press(&mut e, &mut b, Input::keys(&[Key::C]));
+        assert_eq!(e.look().palette, 1);
+        press(&mut e, &mut b, Input::keys(&[Key::C]).shifted());
+        press(&mut e, &mut b, Input::keys(&[Key::C]).shifted());
+        assert_eq!(e.look().palette, PALETTES.len() - 1);
+        assert!(e.title().contains(PALETTES[PALETTES.len() - 1].name));
+
+        press(&mut e, &mut b, Input::keys(&[Key::D]));
+        assert!(e.look().contrast > 1.0);
+
+        assert_eq!(
+            press(&mut e, &mut b, Input::keys(&[Key::A])).switch_kind,
+            Some(1)
+        );
+        assert_eq!(press(&mut e, &mut b, Input::default()).switch_kind, None);
+        let back = press(&mut e, &mut b, Input::keys(&[Key::A]).shifted());
+        assert_eq!(back.switch_kind, Some(-1));
+    }
+
+    #[test]
+    fn held_keys_repeat_but_one_shot_keys_do_not() {
+        let (mut e, mut b) = explorer::<CliffordAttractor>("repeat");
+        let held = |key| Input {
+            repeating: vec![key],
+            ..Input::default()
+        };
+        press(&mut e, &mut b, held(Key::U));
+        press(&mut e, &mut b, held(Key::C));
+        assert_params(e.attractor().params(), &[-1.3, 1.6, 1.0, 0.7]);
+        assert_eq!(e.look().palette, 0);
+    }
+
+    #[test]
+    fn marking_a_special_saves_it_once_and_lights_it_on_the_map() {
+        let cache = temp_cache("special");
+        let mut e =
+            Explorer::<CliffordAttractor>::with_params(&cache, CliffordAttractor::DEFAULT_PARAMS);
+        let mut b = Buffers::default();
+        press(&mut e, &mut b, Input::keys(&[Key::M]));
+        press(&mut e, &mut b, Input::keys(&[Key::M]));
+        let path = cache.join("clifford").join("special.txt");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "a=-1.4,b=1.6,c=1,d=0.7\n"
+        );
+
+        // A new explorer reads it back and draws it green, since it's exactly where we are
+        let mut e =
+            Explorer::<CliffordAttractor>::with_params(&cache, CliffordAttractor::DEFAULT_PARAMS);
+        press(&mut e, &mut b, Input::default());
+        let (x, y) = default_position_on_map();
+        assert_eq!(map_pixel(&b, x, y), rgb(110, 255, 170));
+    }
+
+    #[test]
+    fn an_escaping_attractor_draws_an_empty_preview() {
+        let cache = temp_cache("escape");
+        let mut e = Explorer::<HenonAttractor>::with_params(&cache, &[3.0, 0.3]);
+        let mut b = Buffers::default();
+        press(&mut e, &mut b, Input::default());
+        let first = b.preview[0];
+        assert!(b.preview.iter().all(|&p| p == first));
+        // And recovers once the parameters are sensible again
+        press(
+            &mut e,
+            &mut b,
+            Input::click_map((1.4 + 2.0) / 4.0 * 300.0, (0.3 + 2.0) / 4.0 * 300.0),
+        );
+        press(&mut e, &mut b, Input::default());
+        assert!(b.preview.iter().any(|&p| p != first));
+    }
+}
