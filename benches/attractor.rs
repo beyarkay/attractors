@@ -81,3 +81,31 @@ fn step_500k_one_core(bencher: divan::Bencher) {
         }
     });
 }
+
+const WALKERS: [usize; 4] = [10, 20, 40, 80];
+
+/// A steady frame with different walker counts: more walkers balance slow cores better.
+#[divan::bench(args = WALKERS)]
+fn step_500k_walkers(bencher: divan::Bencher, walkers: usize) {
+    let c = CliffordAttractor::new(CliffordAttractor::DEFAULT_PARAMS);
+    let mut sampler = Sampler::new(walkers, (0.0, 0.0));
+    let mut hist = Histogram::new(PREVIEW.0, PREVIEW.1);
+    sampler.step(&c, 0, &mut hist, &View::default());
+    bencher.bench_local(|| sampler.step(&c, 500_000, &mut hist, &View::default()));
+}
+
+/// A parameter change with different walker counts: more walkers mean more warm-up.
+#[divan::bench(args = WALKERS)]
+fn parameter_change_walkers(bencher: divan::Bencher, walkers: usize) {
+    let mut c = CliffordAttractor::new(CliffordAttractor::DEFAULT_PARAMS);
+    let mut sampler = Sampler::new(walkers, (0.0, 0.0));
+    let mut hist = Histogram::new(PREVIEW.0, PREVIEW.1);
+    let mut a = c.a;
+    bencher.bench_local(|| {
+        a += 1e-3;
+        c.set_params([Some(a), None, None, None]);
+        sampler.reset();
+        hist.clear();
+        sampler.step(&c, 500_000, &mut hist, &View::default());
+    });
+}

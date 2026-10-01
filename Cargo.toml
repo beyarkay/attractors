@@ -23,3 +23,7 @@ harness = false
 
 [profile.bench]
 debug = true
+
+[[bench]]
+name = "scaling"
+harness = false

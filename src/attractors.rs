@@ -96,6 +96,9 @@ const PARALLEL_MIN_STEPS: usize = 100_000;
 pub const WARMUP_STEPS: usize = 20_000;
 /// More walkers than threads lets fast cores run more walkers than slow ones
 const WALKERS_PER_THREAD: usize = 2;
+/// Each thread counts into its own grid when all the grids fit in this many bytes, which avoids
+/// cores contending on hot pixels. Bigger images (large saves) share one grid of atomic counters.
+const PER_THREAD_COUNTS_MAX_BYTES: usize = 256 << 20;
 
 pub fn num_threads() -> usize {
     thread::available_parallelism().map_or(1, |n| n.get())
@@ -107,10 +110,12 @@ pub fn num_threads() -> usize {
 /// same as adding together several long single-core runs. Each walker takes a fixed share of
 /// every call's steps, so the output doesn't depend on thread scheduling. Threads take whole
 /// walkers from a queue, so slower cores simply run fewer of them.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Sampler {
     positions: Vec<(f64, f64)>,
     needs_warmup: bool,
+    /// One grid per thread, kept zeroed between calls
+    per_thread_counts: Vec<Vec<u32>>,
 }
 
 impl Default for Sampler {
@@ -125,6 +130,7 @@ impl Sampler {
         Sampler {
             positions: vec![start; walkers],
             needs_warmup: true,
+            per_thread_counts: Vec::new(),
         }
     }
 
@@ -144,79 +150,158 @@ impl Sampler {
         hist: &mut Histogram,
         view: &View,
     ) {
+        let walkers = self.positions.len();
+        let all_threads = num_threads().min(walkers);
         if self.needs_warmup {
             self.needs_warmup = false;
             let start = self.positions[0];
-            self.for_each_walker(true, |i, pos| {
-                let (mut x, mut y) = (start.0 + i as f64 * 1e-3, start.1);
-                for _ in 0..WARMUP_STEPS {
-                    (x, y) = attractor.next(x, y);
-                }
-                *pos = (x, y);
-                0
-            });
+            run_walkers(
+                &mut self.positions,
+                &mut vec![(); all_threads],
+                |i, pos, _| {
+                    let (mut x, mut y) = (start.0 + i as f64 * 1e-3, start.1);
+                    for _ in 0..WARMUP_STEPS {
+                        (x, y) = attractor.next(x, y);
+                    }
+                    *pos = (x, y);
+                },
+            );
         }
 
         let mapping = PixelMapping::new(attractor.bounds(), view, hist.width, hist.height);
-        // SAFETY: AtomicU32 has the same in-memory representation as u32, and `hist.counts` is
-        // exclusively borrowed for as long as `counts` is used.
-        let counts: &[AtomicU32] =
-            unsafe { &*(hist.counts.as_mut_slice() as *mut [u32] as *const [AtomicU32]) };
-        let walkers = self.positions.len();
-        let max = self.for_each_walker(num_steps >= PARALLEL_MIN_STEPS, |i, pos| {
-            let share = num_steps / walkers + usize::from(i < num_steps % walkers);
-            let (mut x, mut y) = *pos;
-            let mut max = 0;
-            for _ in 0..share {
-                (x, y) = attractor.next(x, y);
-                if let Some(idx) = mapping.index(x, y) {
-                    max = max.max(counts[idx].fetch_add(1, Ordering::Relaxed) + 1);
-                }
+        let share = |i: usize| num_steps / walkers + usize::from(i < num_steps % walkers);
+        let threads = if num_steps < PARALLEL_MIN_STEPS {
+            1
+        } else {
+            all_threads
+        };
+        let cells = hist.counts.len();
+        if threads == 1 {
+            let mut state = [(hist.counts.as_mut_slice(), 0)];
+            run_walkers(&mut self.positions, &mut state, |i, pos, (counts, max)| {
+                *max = walk(attractor, &mapping, share(i), pos, &mut **counts).max(*max);
+            });
+            hist.max = hist.max.max(state[0].1);
+        } else if threads * cells * size_of::<u32>() <= PER_THREAD_COUNTS_MAX_BYTES {
+            let locals = &mut self.per_thread_counts;
+            locals.resize_with(threads, Vec::new);
+            for local in locals.iter_mut().filter(|l| l.len() != cells) {
+                *local = vec![0; cells];
             }
-            *pos = (x, y);
-            max
-        });
-        // Counts only increase, so the largest value any increment produced is the new max
-        hist.max = hist.max.max(max);
+            run_walkers(&mut self.positions, locals, |i, pos, local| {
+                walk(attractor, &mapping, share(i), pos, local.as_mut_slice());
+            });
+            hist.max = hist.max.max(merge_into(&mut hist.counts, locals));
+        } else {
+            // SAFETY: AtomicU32 has the same in-memory representation as u32, and `hist.counts`
+            // is exclusively borrowed for as long as `shared` is used.
+            let shared: &[AtomicU32] =
+                unsafe { &*(hist.counts.as_mut_slice() as *mut [u32] as *const [AtomicU32]) };
+            let mut maxes = vec![0; threads];
+            run_walkers(&mut self.positions, &mut maxes, |i, pos, max| {
+                let mut counts = SharedCounts(shared);
+                *max = walk(attractor, &mapping, share(i), pos, &mut counts).max(*max);
+            });
+            hist.max = maxes.into_iter().fold(hist.max, u32::max);
+        }
         hist.steps += num_steps;
     }
+}
 
-    /// Run `walk(walker index, walker position)` for every walker, returning the largest result.
-    fn for_each_walker<F>(&mut self, parallel: bool, walk: F) -> u32
-    where
-        F: Fn(usize, &mut (f64, f64)) -> u32 + Sync,
-    {
-        if !parallel {
-            return self
-                .positions
-                .iter_mut()
-                .enumerate()
-                .map(|(i, pos)| walk(i, pos))
-                .fold(0, u32::max);
-        }
-        let threads = num_threads().min(self.positions.len());
-        let queue = Mutex::new(self.positions.iter_mut().enumerate());
-        thread::scope(|s| {
-            let handles: Vec<_> = (0..threads)
-                .map(|_| {
-                    s.spawn(|| {
-                        let mut max = 0;
-                        loop {
-                            // Separate statement so the lock is released before walking
-                            let next = queue.lock().unwrap().next();
-                            let Some((i, pos)) = next else { break };
-                            max = max.max(walk(i, pos));
-                        }
-                        max
-                    })
-                })
-                .collect();
-            handles
-                .into_iter()
-                .map(|h| h.join().unwrap())
-                .fold(0, u32::max)
-        })
+trait Counts {
+    /// Add one to the count at `idx`, returning the new count
+    fn add(&mut self, idx: usize) -> u32;
+}
+
+impl Counts for [u32] {
+    fn add(&mut self, idx: usize) -> u32 {
+        self[idx] += 1;
+        self[idx]
     }
+}
+
+struct SharedCounts<'a>(&'a [AtomicU32]);
+
+impl Counts for SharedCounts<'_> {
+    fn add(&mut self, idx: usize) -> u32 {
+        self.0[idx].fetch_add(1, Ordering::Relaxed) + 1
+    }
+}
+
+/// Advance one walker `steps` times, counting each point. Returns the largest count produced.
+fn walk<A: Attractor, C: Counts + ?Sized>(
+    attractor: &A,
+    mapping: &PixelMapping,
+    steps: usize,
+    pos: &mut (f64, f64),
+    counts: &mut C,
+) -> u32 {
+    let (mut x, mut y) = *pos;
+    let mut max = 0;
+    for _ in 0..steps {
+        (x, y) = attractor.next(x, y);
+        if let Some(idx) = mapping.index(x, y) {
+            max = max.max(counts.add(idx));
+        }
+    }
+    *pos = (x, y);
+    max
+}
+
+/// Run `f(walker index, walker position, thread state)` for every walker, with one thread per
+/// element of `per_thread`. Threads take walkers from a queue, so faster cores run more of them.
+fn run_walkers<T, F>(positions: &mut [(f64, f64)], per_thread: &mut [T], f: F)
+where
+    T: Send,
+    F: Fn(usize, &mut (f64, f64), &mut T) + Sync,
+{
+    if let [state] = per_thread {
+        for (i, pos) in positions.iter_mut().enumerate() {
+            f(i, pos, state);
+        }
+        return;
+    }
+    let queue = Mutex::new(positions.iter_mut().enumerate());
+    thread::scope(|s| {
+        for state in per_thread {
+            let (queue, f) = (&queue, &f);
+            s.spawn(move || loop {
+                // Separate statement so the lock is released before walking
+                let next = queue.lock().unwrap().next();
+                let Some((i, pos)) = next else { break };
+                f(i, pos, state);
+            });
+        }
+    });
+}
+
+/// Add every per-thread grid into `total` and zero them, in parallel bands. Returns the largest
+/// count in `total`.
+fn merge_into(total: &mut [u32], locals: &mut [Vec<u32>]) -> u32 {
+    let band = total.len().div_ceil(locals.len());
+    let mut local_bands: Vec<_> = locals.iter_mut().map(|l| l.chunks_mut(band)).collect();
+    thread::scope(|s| {
+        let handles: Vec<_> = total
+            .chunks_mut(band)
+            .map(|out| {
+                let sources: Vec<&mut [u32]> =
+                    local_bands.iter_mut().map(|b| b.next().unwrap()).collect();
+                s.spawn(move || {
+                    for src in sources {
+                        for (o, v) in out.iter_mut().zip(src) {
+                            *o += *v;
+                            *v = 0;
+                        }
+                    }
+                    out.iter().copied().max().unwrap_or(0)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .fold(0, u32::max)
+    })
 }
 
 /// Maps attractor coordinates to histogram indices for a given view.
@@ -498,6 +583,19 @@ mod tests {
         Sampler::default().step(&c, 1000, &mut hist, &view);
         assert_eq!(hist.max, 0);
         assert_eq!(hist.steps, 1000);
+    }
+
+    #[test]
+    fn histogram_too_big_for_per_thread_grids_counts_every_point() {
+        let threads = num_threads();
+        let side = ((PER_THREAD_COUNTS_MAX_BYTES / 4 / threads) as f64).sqrt() as usize + 1;
+        let c = CliffordAttractor::new(PARAMS);
+        let mut sampler = Sampler::default();
+        let mut hist = Histogram::new(side, side);
+        let n = PARALLEL_MIN_STEPS * 2;
+        sampler.step(&c, n, &mut hist, &View::default());
+        assert_eq!(hist.counts.iter().map(|&n| n as usize).sum::<usize>(), n);
+        assert_eq!(Some(&hist.max), hist.counts.iter().max());
     }
 
     #[test]
