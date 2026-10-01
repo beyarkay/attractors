@@ -171,14 +171,14 @@ fn nudge_command<A>(
 
 fn commands<A: Attractor + Display>() -> Vec<Command<A>> {
     vec![
-        nudge_command(Key::J, nudge::<A, 0, false>, "a -= delta"),
-        nudge_command(Key::K, nudge::<A, 1, false>, "b -= delta"),
-        nudge_command(Key::L, nudge::<A, 2, false>, "c -= delta"),
-        nudge_command(Key::Semicolon, nudge::<A, 3, false>, "d -= delta"),
-        nudge_command(Key::U, nudge::<A, 0, true>, "a += delta"),
-        nudge_command(Key::I, nudge::<A, 1, true>, "b += delta"),
-        nudge_command(Key::O, nudge::<A, 2, true>, "c += delta"),
-        nudge_command(Key::P, nudge::<A, 3, true>, "d += delta"),
+        nudge_command(Key::J, nudge::<A, 0, false>, "Decrease a by the step size"),
+        nudge_command(Key::K, nudge::<A, 1, false>, "Decrease b by the step size"),
+        nudge_command(Key::L, nudge::<A, 2, false>, "Decrease c by the step size"),
+        nudge_command(Key::Semicolon, nudge::<A, 3, false>, "Decrease d by the step size"),
+        nudge_command(Key::U, nudge::<A, 0, true>, "Increase a by the step size"),
+        nudge_command(Key::I, nudge::<A, 1, true>, "Increase b by the step size"),
+        nudge_command(Key::O, nudge::<A, 2, true>, "Increase c by the step size"),
+        nudge_command(Key::P, nudge::<A, 3, true>, "Increase d by the step size"),
         Command {
             key: Key::R,
             repeat: false,
@@ -229,10 +229,10 @@ fn commands<A: Attractor + Display>() -> Vec<Command<A>> {
             key: Key::T,
             repeat: false,
             enabled: true,
-            description: "Multiply delta by 10 (Shift: divide by 10)",
+            description: "Multiply the step size by 10 (Shift: divide by 10)",
             action: |s, shift| {
                 s.delta *= 10.0_f64.powf(sign(shift));
-                println!("delta: {}", s.delta);
+                println!("step size: {}", s.delta);
             },
         },
         Command {
@@ -335,20 +335,23 @@ fn run_interactively<A: Attractor + Display>() {
     println!("{:#}", state.attractor);
 
     let commands = commands();
-    println!("=== List of Commands ===");
-    for command in commands.iter().filter(|c| c.enabled) {
-        println!("`{:?}` => {}", command.key, command.description);
-    }
+    print_help(&commands);
 
     let mut window = Window::new(
-        "Strange Attractors (hold esc to exit)",
+        "Strange Attractors",
         WIDTH,
         HEIGHT,
         WindowOptions::default(),
     )
     .unwrap_or_else(|e| panic!("{}", e));
-    let mut map_window =
-        Window::new("Map", MAP_WIDTH, MAP_HEIGHT, WindowOptions::default()).unwrap();
+    let mut map_window = Window::new(
+        "Map: click and drag to choose parameters",
+        MAP_WIDTH,
+        MAP_HEIGHT,
+        WindowOptions::default(),
+    )
+    .unwrap();
+    let mut title = String::new();
     map_window.set_position(0, 0);
     window.set_position(MAP_WIDTH as isize, 0);
 
@@ -399,8 +402,35 @@ fn run_interactively<A: Attractor + Display>() {
                 (cmd.action)(&mut state, shift);
             }
         }
+        if once.contains(&Key::Slash) {
+            print_help(&commands);
+        }
+
+        let [a, b, c, d] = state.attractor.params();
+        let new_title = format!(
+            "a {a:+.3}   b {b:+.3}   c {c:+.3}   d {d:+.3}   |   {}   |   step {}   |   ? for help",
+            state.look.palette().name,
+            state.delta,
+        );
+        if new_title != title {
+            window.set_title(&new_title);
+            title = new_title;
+        }
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
     }
+}
+
+fn print_help<A>(commands: &[Command<A>]) {
+    println!("\nKeys (with the attractor window focused):");
+    for command in commands.iter().filter(|c| c.enabled) {
+        let key = match command.key {
+            Key::Semicolon => ";".to_string(),
+            key => format!("{key:?}"),
+        };
+        println!("  {key:>3}  {}", command.description);
+    }
+    println!("    ?  Show this help again");
+    println!("  Esc  Quit\n");
 }
 
 fn load_specials<A: Attractor>() -> Vec<[f64; 4]> {
@@ -537,11 +567,14 @@ fn update_map(
     mouse_down: bool,
     map_window: &mut Window,
 ) -> [Option<f64>; 4] {
-    let color_axes = rgb(40, 40, 40);
-    let color_specials = rgb(50, 50, 50);
-    let color_specials_exact = rgb(0, 255, 0);
-    let color_crosshairs = rgb(150, 150, 150);
-    let color_crosshairs_mouse = rgb(150, 150, 150);
+    let color_background = rgb(13, 15, 24);
+    let color_dividers = rgb(60, 66, 88);
+    let color_axes = rgb(34, 39, 56);
+    let color_specials = [62, 70, 98];
+    let color_specials_near = [255, 184, 92];
+    let color_specials_exact = rgb(110, 255, 170);
+    let color_crosshairs = rgb(240, 240, 250);
+    let color_crosshairs_mouse = rgb(120, 130, 155);
 
     // Which parameters each plot shows on its (x, y) axes:
     // 0:(a,b) 1:(c,b)
@@ -555,7 +588,11 @@ fn update_map(
         bottom: MAP_HEIGHT,
     };
 
-    map_buf.fill(0);
+    map_buf.fill(color_background);
+    for i in 0..MAP_WIDTH.min(MAP_HEIGHT) {
+        whole_window.set(map_buf, half_w as isize, i as isize, color_dividers);
+        whole_window.set(map_buf, i as isize, half_h as isize, color_dividers);
+    }
     let mut new_params = [None; 4];
     let mut mouse_in_a_plot = false;
     for (plt_idx, &(xi, yi)) in PLOT_AXES.iter().enumerate() {
@@ -591,10 +628,16 @@ fn update_map(
             } else if x_dist < max_dist && y_dist < max_dist {
                 let normalised_dist =
                     (x_dist * x_dist + y_dist * y_dist).sqrt() / (2_f64.sqrt() * max_dist);
-                let brightness = 50 + (200.0 - 200.0 * normalised_dist) as u8;
-                rgb(brightness, brightness, brightness)
+                let near = 1.0 - normalised_dist;
+                let [r, g, b] = [0, 1, 2].map(|i| {
+                    (color_specials[i] as f64
+                        + near * (color_specials_near[i] as f64 - color_specials[i] as f64))
+                        as u8
+                });
+                rgb(r, g, b)
             } else {
-                color_specials
+                let [r, g, b] = color_specials;
+                rgb(r, g, b)
             };
             plot.set(map_buf, mx, my, colour);
         }
