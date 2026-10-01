@@ -3,7 +3,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use attractors::render::{blend_and_colour, save_png};
+use attractors::render::{blend_and_colour, save_png, Look, PALETTES};
 use attractors::*;
 use minifb::{CursorStyle, Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 use rand::Rng;
@@ -22,7 +22,6 @@ const WIDTH: usize = ISO_PAPER_FORMAT.0;
 const HEIGHT: usize = ISO_PAPER_FORMAT.1;
 const MIN_NUM_STEPS: usize = 500_000;
 const MAX_PREVIEW_STEPS: usize = 10_000_000;
-const DEFAULT_POWER: f64 = 0.15;
 /// Number of parameters the nudge keys and the map act on at once
 const PARAM_WINDOW: usize = 4;
 
@@ -134,7 +133,7 @@ fn run_headless<A: Attractor>(filename: &str, size: (usize, usize)) {
         let sampler = Sampler::new(A::START);
         let view = View::default();
         let dir = output_dir::<A>();
-        match save_png(&attractor, &sampler, size, &view, DEFAULT_POWER, &dir) {
+        match save_png(&attractor, &sampler, size, &view, &Look::default(), &dir) {
             Ok(path) => println!("Saved {}", path.display()),
             Err(e) => eprintln!("Failed to save `{line}`: {e}"),
         }
@@ -170,13 +169,19 @@ struct Windows {
 impl Windows {
     fn new() -> Self {
         let mut main = Window::new(
-            "Strange Attractors (hold esc to exit)",
+            "Strange Attractors",
             WIDTH,
             HEIGHT,
             WindowOptions::default(),
         )
         .unwrap_or_else(|e| panic!("{}", e));
-        let mut map = Window::new("Map", MAP_WIDTH, MAP_HEIGHT, WindowOptions::default()).unwrap();
+        let mut map = Window::new(
+            "Map: click and drag to choose parameters",
+            MAP_WIDTH,
+            MAP_HEIGHT,
+            WindowOptions::default(),
+        )
+        .unwrap();
         map.set_position(0, 0);
         main.set_position(MAP_WIDTH as isize, 0);
         Windows {
@@ -202,8 +207,7 @@ struct State<A> {
     noodle_factor: f64,
     /// How much each key press changes a parameter
     delta: f64,
-    /// Densities are raised to this power before colouring
-    power: f64,
+    look: Look,
     /// Set to move to another kind of attractor: +1 for the next, -1 for the previous
     switch_kind: Option<isize>,
 }
@@ -285,14 +289,14 @@ fn nudge_command<A>(
 
 fn commands<A: Attractor>() -> Vec<Command<A>> {
     vec![
-        nudge_command(Key::J, nudge::<A, 0, false>, "1st parameter in the window -= delta"),
-        nudge_command(Key::K, nudge::<A, 1, false>, "2nd parameter in the window -= delta"),
-        nudge_command(Key::L, nudge::<A, 2, false>, "3rd parameter in the window -= delta"),
-        nudge_command(Key::Semicolon, nudge::<A, 3, false>, "4th parameter in the window -= delta"),
-        nudge_command(Key::U, nudge::<A, 0, true>, "1st parameter in the window += delta"),
-        nudge_command(Key::I, nudge::<A, 1, true>, "2nd parameter in the window += delta"),
-        nudge_command(Key::O, nudge::<A, 2, true>, "3rd parameter in the window += delta"),
-        nudge_command(Key::P, nudge::<A, 3, true>, "4th parameter in the window += delta"),
+        nudge_command(Key::J, nudge::<A, 0, false>, "Decrease the 1st parameter in the window by the step size"),
+        nudge_command(Key::K, nudge::<A, 1, false>, "Decrease the 2nd parameter in the window by the step size"),
+        nudge_command(Key::L, nudge::<A, 2, false>, "Decrease the 3rd parameter in the window by the step size"),
+        nudge_command(Key::Semicolon, nudge::<A, 3, false>, "Decrease the 4th parameter in the window by the step size"),
+        nudge_command(Key::U, nudge::<A, 0, true>, "Increase the 1st parameter in the window by the step size"),
+        nudge_command(Key::I, nudge::<A, 1, true>, "Increase the 2nd parameter in the window by the step size"),
+        nudge_command(Key::O, nudge::<A, 2, true>, "Increase the 3rd parameter in the window by the step size"),
+        nudge_command(Key::P, nudge::<A, 3, true>, "Increase the 4th parameter in the window by the step size"),
         Command {
             key: Key::RightBracket,
             repeat: false,
@@ -337,7 +341,7 @@ fn commands<A: Attractor>() -> Vec<Command<A>> {
             action: |s, shift| {
                 let size = if shift { A0_600_DPI } else { A3_600_DPI };
                 let dir = output_dir::<A>();
-                match save_png(&s.attractor, &s.sampler, size, &s.view, s.power, &dir) {
+                match save_png(&s.attractor, &s.sampler, size, &s.view, &s.look, &dir) {
                     Ok(path) => println!("Saved {}", path.display()),
                     Err(e) => eprintln!("Failed to save: {e}"),
                 }
@@ -364,20 +368,31 @@ fn commands<A: Attractor>() -> Vec<Command<A>> {
             key: Key::T,
             repeat: false,
             enabled: true,
-            description: "Multiply delta by 10 (Shift: divide by 10)",
+            description: "Multiply the step size by 10 (Shift: divide by 10)",
             action: |s, shift| {
                 s.delta *= 10.0_f64.powf(sign(shift));
-                println!("delta: {}", s.delta);
+                println!("step size: {}", s.delta);
             },
         },
         Command {
             key: Key::D,
             repeat: true,
             enabled: true,
-            description: "Increase the colour power by delta, so dim pixels get darker (Shift: decrease)",
+            description: "Increase contrast, so faint areas get darker (Shift: decrease)",
             action: |s, shift| {
-                s.power = (s.power + sign(shift) * s.delta).clamp(0.01, 1.0);
-                println!("power: {:.4}", s.power);
+                s.look.contrast = (s.look.contrast * 1.05_f64.powf(sign(shift))).clamp(0.2, 5.0);
+                println!("contrast: {:.2}", s.look.contrast);
+            },
+        },
+        Command {
+            key: Key::C,
+            repeat: false,
+            enabled: true,
+            description: "Next colour palette (Shift: previous)",
+            action: |s, shift| {
+                let n = PALETTES.len();
+                s.look.palette = (s.look.palette + if shift { n - 1 } else { 1 }) % n;
+                println!("palette: {}", s.look.palette().name);
             },
         },
         Command {
@@ -457,15 +472,12 @@ fn run_interactively<A: Attractor>(windows: &mut Windows) -> Option<isize> {
         window_start: 0,
         noodle_factor: 0.9,
         delta: 0.1,
-        power: DEFAULT_POWER,
+        look: Look::default(),
         switch_kind: None,
     };
 
     let commands = commands();
-    println!("=== List of Commands ===");
-    for command in commands.iter().filter(|c| c.enabled) {
-        println!("`{:?}` => {}", command.key, command.description);
-    }
+    print_help(&commands);
     println!(
         "=== {} ({} parameters) ===\n{}",
         A::NAME,
@@ -476,10 +488,7 @@ fn run_interactively<A: Attractor>(windows: &mut Windows) -> Option<isize> {
         "{}",
         format_params(A::PARAM_NAMES, state.attractor.params())
     );
-    windows.main.set_title(&format!(
-        "Strange Attractors: {} (hold esc to exit)",
-        A::NAME
-    ));
+    let mut title = String::new();
 
     state.restart();
     while windows.main.is_open() && !windows.main.is_key_down(Key::Escape) {
@@ -495,7 +504,7 @@ fn run_interactively<A: Attractor>(windows: &mut Windows) -> Option<isize> {
             &state.hist,
             &mut windows.prev_densities,
             state.noodle_factor,
-            state.power,
+            &state.look,
             &mut windows.buffer,
         );
 
@@ -532,6 +541,15 @@ fn run_interactively<A: Attractor>(windows: &mut Windows) -> Option<isize> {
                 (cmd.action)(&mut state, shift);
             }
         }
+        if once.contains(&Key::Slash) {
+            print_help(&commands);
+        }
+
+        let new_title = window_title(&state);
+        if new_title != title {
+            windows.main.set_title(&new_title);
+            title = new_title;
+        }
         windows
             .main
             .update_with_buffer(&windows.buffer, WIDTH, HEIGHT)
@@ -541,6 +559,36 @@ fn run_interactively<A: Attractor>(windows: &mut Windows) -> Option<isize> {
         }
     }
     None
+}
+
+/// The attractor's name, the parameters the keys currently control, the palette and step size
+fn window_title<A: Attractor>(state: &State<A>) -> String {
+    let end = (state.window_start + PARAM_WINDOW).min(A::PARAM_NAMES.len());
+    let params: Vec<String> = (state.window_start..end)
+        .map(|i| format!("{} {:+.3}", A::PARAM_NAMES[i], state.attractor.params()[i]))
+        .collect();
+    format!(
+        "{}   {}   |   {}   |   step {}   |   ? for help",
+        A::NAME,
+        params.join("   "),
+        state.look.palette().name,
+        state.delta,
+    )
+}
+
+fn print_help<A>(commands: &[Command<A>]) {
+    println!("\nKeys (with the attractor window focused):");
+    for command in commands.iter().filter(|c| c.enabled) {
+        let key = match command.key {
+            Key::Semicolon => ";".to_string(),
+            Key::LeftBracket => "[".to_string(),
+            Key::RightBracket => "]".to_string(),
+            key => format!("{key:?}"),
+        };
+        println!("  {key:>3}  {}", command.description);
+    }
+    println!("    ?  Show this help again");
+    println!("  Esc  Quit\n");
 }
 
 fn load_specials<A: Attractor>() -> Vec<Vec<f64>> {
@@ -664,11 +712,14 @@ fn update_map<A: Attractor>(
     mouse_down: bool,
     map_window: &mut Window,
 ) -> Vec<(usize, f64)> {
-    let color_axes = rgb(40, 40, 40);
-    let color_specials = rgb(50, 50, 50);
-    let color_specials_exact = rgb(0, 255, 0);
-    let color_crosshairs = rgb(150, 150, 150);
-    let color_crosshairs_mouse = rgb(150, 150, 150);
+    let color_background = rgb(13, 15, 24);
+    let color_dividers = rgb(60, 66, 88);
+    let color_axes = rgb(34, 39, 56);
+    let color_specials = [62, 70, 98];
+    let color_specials_near = [255, 184, 92];
+    let color_specials_exact = rgb(110, 255, 170);
+    let color_crosshairs = rgb(240, 240, 250);
+    let color_crosshairs_mouse = rgb(120, 130, 155);
 
     // Which parameters of the window each quadrant shows on its (x, y) axes:
     // 0:(1st,2nd) 1:(3rd,2nd)
@@ -683,7 +734,11 @@ fn update_map<A: Attractor>(
         bottom: MAP_HEIGHT,
     };
 
-    map_buf.fill(0);
+    map_buf.fill(color_background);
+    for i in 0..MAP_WIDTH.min(MAP_HEIGHT) {
+        whole_window.set(map_buf, half_w as isize, i as isize, color_dividers);
+        whole_window.set(map_buf, i as isize, half_h as isize, color_dividers);
+    }
     let mut new_params = Vec::new();
     let mut mouse_in_a_plot = false;
     for (plt_idx, &(x_offset, y_offset)) in PLOT_AXES.iter().enumerate() {
@@ -725,10 +780,16 @@ fn update_map<A: Attractor>(
             let colour = if dist < 0.01 {
                 color_specials_exact
             } else if dist < max_dist {
-                let brightness = 50 + (200.0 - 200.0 * dist / max_dist) as u8;
-                rgb(brightness, brightness, brightness)
+                let near = 1.0 - dist / max_dist;
+                let [r, g, b] = [0, 1, 2].map(|i| {
+                    (color_specials[i] as f64
+                        + near * (color_specials_near[i] as f64 - color_specials[i] as f64))
+                        as u8
+                });
+                rgb(r, g, b)
             } else {
-                color_specials
+                let [r, g, b] = color_specials;
+                rgb(r, g, b)
             };
             plot.set(map_buf, mx, my, colour);
         }

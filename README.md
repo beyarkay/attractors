@@ -44,38 +44,78 @@ cd attractors && cargo run --release
 The extra optimisations given by the `--release` flag are _really_ required for
 a smooth experience.
 
-There will be some console output explaining the available commands and what
-they do, and two windows should pop up: a small diagnostics window (which you
-can ignore) a square Map window (which you can ignore), and a larger square
-window.
+Two windows open: the attractor itself, and a square Map window to its left.
+The terminal lists every key; press `?` in the attractor window to list them
+again. The attractor window's title shows the current parameters, palette and
+step size.
 
-Click on the large square window to focus it. The attractor will automatically
-be drawn, and you can change the 4 parameters fed to the attractor (named a, b,
-c, d) with vim-like key bindings:
+Click the attractor window to focus it, then change the parameters with the two
+rows of keys under your right hand. The keys act on a window of four parameters
+at a time, which for a Clifford attractor is all of a, b, c and d:
 
 ```
-j -> decrease a; k -> increase a;
-J -> decrease b; K -> increase b;
-h -> decrease c; l -> increase c;
-H -> decrease d; L -> increase d;
+u i o p    increase the 1st, 2nd, 3rd, 4th parameter in the window
+j k l ;    decrease the 1st, 2nd, 3rd, 4th parameter in the window
+[ / ]      slide the window left / right, for attractors with more than four
+t / T      multiply / divide the step size by 10
 ```
+
+Hold a key to keep changing a parameter.
+
+### Kinds of attractor
+
+Press `a` / `A` to switch to the next / previous kind of attractor, or start
+with one directly:
+
+```sh
+cargo run --release -- --attractor tinkerbell
+```
+
+The kinds are `clifford`, `dejong`, `kingsdream`, `henon` (2 parameters),
+`tinkerbell` and `sprott` (Sprott's quadratic map, 12 parameters). Each kind
+keeps its saved images and special attractors in its own `cache/<name>/`
+directory.
+
+To add a new kind, write a struct holding its parameters in
+`src/attractors.rs`, implement the `Attractor` trait for it (its name,
+parameter names, default parameters, a range for the map, and the formula), and
+add it to `kinds()` in `src/main.rs`. If you don't know a box that contains the
+attractor, leave out `bounds` and it will be estimated from a sample of points.
+
+### Colours
+
+| Key       | Effect                                                    |
+| --------- | --------------------------------------------------------- |
+| `c` / `C` | next / previous palette                                   |
+| `d` / `D` | more / less contrast (higher darkens the faint areas)     |
+| `n` / `N` | blend frames together less / more                         |
+
+The palettes are Inferno, Aurora, Ice, Gold, Neon, Magma, Cubehelix, Turbo, and
+two light-background ones for printing on paper, Ink and Terracotta.
+
+The preview is coloured so that it looks like the saved image shrunk down to
+the window's size, so what you see is what you'll print. Blending frames
+together (`N`) makes changes fade in like echoes, which reduces flashing and is
+gentler for people with photosensitive epilepsy.
 
 ### The Map window
 
 If you look at the Map window, you'll see four 2D plots. Each of the four plots
-shows two parameters, and together they can guide you around the 4D parameter
-space. The plots are: a-b, a-d, c-b, and c-d. They're oriented like this:
+shows two of the parameters in the current window, and together they can guide
+you around the parameter space. Click and drag on a plot to set its two
+parameters. Attractors with fewer than four parameters show fewer plots. For a
+Clifford attractor the plots are oriented like this:
 
 ```
-       b            d
+       b            b
        |            |
-  -----+----a  -----+----a
+  -----+----a  -----+----c
        |            |
        |            |
 
-       b            d
+       d            d
        |            |
-  -----+----c  -----+----c
+  -----+----a  -----+----c
        |            |
        |            |
 ```
@@ -84,46 +124,34 @@ And the window looks like this:
 
 ![](img/map.png)
 
-As you press `hjklHJKL` the 4 cross-hairs on the Map window will move around
-the four plots so the cross-hair on the `a-b` plot will show the current values
-for the `a` and `b` parameters, the cross-hair on the `a-d` plot will show the
-current values for the `a` and `d` parameters, and so on.
+As you change parameters, the white cross-hair on each plot moves to show the
+current values of that plot's two parameters.
 
-There are also lots of white dots on the map, like constellations. Each dot
-represents a special or interesting strange attractor, and you can mark a particular
-attractor as special by pressing the `m` key. Special attractors are saved to
-`cache/clifford/special.txt` and will persist between runs of the program. Try
-navigate to different special attractors. It's takes getting used to, since all
-four cross-hairs need to line up different white dots but it's a fun exercise.
+The dots on the map, like constellations, are special attractors. A dot glows
+amber as the parameters the plot doesn't show get close to that attractor's,
+and turns green once you're right on it. Press `m` to mark the current
+attractor as special. Special attractors are saved to
+`cache/<name>/special.txt` and persist between runs.
 
 ### Other commands
 
-Additionally, you can select a random set of parameters by pressing R:
+| Key       | Effect                                                        |
+| --------- | ------------------------------------------------------------- |
+| `r`       | jump to a random special attractor                            |
+| `R`       | random parameters, retried until the attractor is chaotic     |
+| `s` / `S` | save an A3 / A0 png at 600 DPI into `cache/<name>/`           |
+| `z` / `Z` | zoom in / out                                                 |
+| `x`       | reset zoom and pan                                            |
+| `y`       | run more simulation steps for a smoother preview              |
+| `m`       | mark the current attractor as special                         |
+| `Esc`     | quit                                                          |
 
-```
-`[R]` => Randomize the Clifford parameters and re-run the attractor with these new parameters
-```
+You can also save every attractor in a file of parameter lines like
+`a=..,b=..,c=..,d=..` without opening a window:
 
-You can `print` off an attractor by pressing `p` which will save it as a `.png`
-in `cached/clifford/`.
-
-```
-`[P]` => Save the attractor in high resolution to disc as png (enabled: true)
-```
-
-You can also change the hue of the attractor by pressing `e` or `E`:
-
-```
-`[E]` => Increase or decrease the LCH hue intercept by 0.01 (enabled: true)
-```
-
-Pressing `n` or `N` will increase/decrease the decay factor between 0 and 1.
-Values closer to zero will cause previous attractors to blend into future
-attractors like echoes, which is a nice effect but primarily is good at reducing
-the strobing and stuttering effect dangerous to those with photosensitive epilepsy.
-
-```
-`[N]` =>  Change how quickly one attractor merges to another (helps with photosensitive epilepsy)
+```sh
+cargo run --release -- cache/clifford/special.txt A3
+cargo run --release -- --attractor henon henon_params.txt A3
 ```
 
 ## What are Strange Attractors

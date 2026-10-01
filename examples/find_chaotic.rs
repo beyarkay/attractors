@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use attractors::render::write_png;
+use attractors::render::{write_png, Look};
 use attractors::{
     format_params, lyapunov_exponent, Attractor, Histogram, Sampler, SprottQuadraticAttractor, View,
 };
@@ -54,7 +54,7 @@ fn main() {
         let mut hist = Histogram::new(400, 400);
         sampler.step(&attractor, 4_000_000, &mut hist, &View::default());
         let path = out_dir.join(format!("{found:02}.png"));
-        write_png(&hist, 0.15, &path).unwrap();
+        write_png(&hist, &Look::default(), &path).unwrap();
         println!(
             "{found:02} after {tries} tries: lyapunov={lyapunov:.3} coverage={covered:.2} {}",
             format_params(Searched::PARAM_NAMES, &params)
