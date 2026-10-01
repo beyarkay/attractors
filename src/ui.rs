@@ -28,18 +28,6 @@ const MAX_PREVIEW_STEPS: usize = 10_000_000;
 /// Number of parameters the nudge keys and the map act on at once
 pub const PARAM_WINDOW: usize = 4;
 
-pub fn paper_size(name: &str) -> Option<(usize, usize)> {
-    match name.to_uppercase().as_str() {
-        "A0" => Some(A0_600_DPI),
-        "A1" => Some(A1_600_DPI),
-        "A2" => Some(A2_600_DPI),
-        "A3" => Some(A3_600_DPI),
-        "A4" => Some(A4_600_DPI),
-        "A5" => Some(A5_600_DPI),
-        _ => None,
-    }
-}
-
 /// Where images and `special.txt` for this kind of attractor live
 pub fn output_dir<A: Attractor>(cache_dir: &Path) -> PathBuf {
     cache_dir.join(A::NAME)

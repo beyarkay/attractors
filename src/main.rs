@@ -1,12 +1,16 @@
-use std::env;
 use std::fs;
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 use attractors::render::{save_png, Look};
 use attractors::ui::{
-    output_dir, paper_size, Buffers, Explorer, Input, HEIGHT, MAP_HEIGHT, MAP_WIDTH, WIDTH,
+    output_dir, Buffers, Explorer, Input, A0_600_DPI, A1_600_DPI, A2_600_DPI, A3_600_DPI,
+    A4_600_DPI, A5_600_DPI, HEIGHT, MAP_HEIGHT, MAP_WIDTH, WIDTH,
 };
 use attractors::*;
+use clap::builder::PossibleValuesParser;
+use clap::{Parser, ValueEnum};
 use minifb::{CursorStyle, Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 
 const CACHE_DIR: &str = "cache";
@@ -15,7 +19,7 @@ const CACHE_DIR: &str = "cache";
 struct Kind {
     name: &'static str,
     explore: fn(&mut Windows) -> Option<isize>,
-    render_file: fn(&str, (usize, usize)),
+    render_file: fn(&Path, (usize, usize)) -> io::Result<()>,
 }
 
 fn kind<A: Attractor>() -> Kind {
@@ -37,45 +41,76 @@ fn kinds() -> Vec<Kind> {
     attractors::all_attractors!(kinds_of)
 }
 
-fn main() {
-    let mut args: Vec<String> = env::args().skip(1).collect();
-    let kinds = kinds();
-    let mut name = kinds[0].name.to_string();
-    if let Some(i) = args.iter().position(|a| a == "--attractor") {
-        args.remove(i);
-        if i < args.len() {
-            name = args.remove(i);
+/// Explore strange attractors in a window, or render a file of parameters to PNGs
+#[derive(Parser, Debug)]
+#[command(version)]
+struct Cli {
+    /// Kind of attractor (`a` / `A` switch kinds while exploring)
+    #[arg(short, long, default_value = "clifford", value_parser = PossibleValuesParser::new(attractor_names()))]
+    attractor: String,
+
+    /// File of parameter lines like `a=1.2,b=-0.5,c=1,d=0.7` to render to `cache/<attractor>/`
+    /// without opening a window
+    file: Option<PathBuf>,
+
+    /// Paper size to render at, 600 dots per inch
+    #[arg(value_enum, ignore_case = true, default_value_t = Paper::A0, requires = "file")]
+    paper: Paper,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
+enum Paper {
+    A0,
+    A1,
+    A2,
+    A3,
+    A4,
+    A5,
+}
+
+impl Paper {
+    fn pixels(self) -> (usize, usize) {
+        match self {
+            Paper::A0 => A0_600_DPI,
+            Paper::A1 => A1_600_DPI,
+            Paper::A2 => A2_600_DPI,
+            Paper::A3 => A3_600_DPI,
+            Paper::A4 => A4_600_DPI,
+            Paper::A5 => A5_600_DPI,
         }
     }
-    let usage = format!(
-        "Usage: attractors [--attractor NAME] [<file of parameter lines, e.g. `a=..,b=..`> [A0|A1|A2|A3|A4|A5]]\n\
-         Attractors: {}",
-        kinds.iter().map(|k| k.name).collect::<Vec<_>>().join(", ")
-    );
-    let Some(mut idx) = kinds.iter().position(|k| k.name == name) else {
-        println!("Unknown attractor `{name}`\n{usage}");
-        return;
-    };
-    match args.as_slice() {
-        [] => {
+}
+
+fn attractor_names() -> Vec<&'static str> {
+    kinds().iter().map(|k| k.name).collect()
+}
+
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+    let kinds = kinds();
+    let mut idx = kinds
+        .iter()
+        .position(|k| k.name == cli.attractor)
+        .expect("clap only accepts known attractor names");
+    match &cli.file {
+        None => {
             let mut windows = Windows::new();
             while let Some(step) = (kinds[idx].explore)(&mut windows) {
                 idx = (idx as isize + step).rem_euclid(kinds.len() as isize) as usize;
             }
         }
-        [file] | [file, _] => {
-            let paper = args.get(1).map_or("A0", String::as_str);
-            match paper_size(paper) {
-                Some(size) => (kinds[idx].render_file)(file, size),
-                None => println!("Unknown paper size `{paper}`\n{usage}"),
+        Some(file) => {
+            if let Err(e) = (kinds[idx].render_file)(file, cli.paper.pixels()) {
+                eprintln!("Couldn't read {}: {e}", file.display());
+                return ExitCode::FAILURE;
             }
         }
-        _ => println!("{usage}"),
     }
+    ExitCode::SUCCESS
 }
 
-fn run_headless<A: Attractor>(filename: &str, size: (usize, usize)) {
-    let contents = fs::read_to_string(filename).expect("Something went wrong reading the file");
+fn run_headless<A: Attractor>(filename: &Path, size: (usize, usize)) -> io::Result<()> {
+    let contents = fs::read_to_string(filename)?;
     let lines: Vec<_> = contents
         .lines()
         .enumerate()
@@ -86,7 +121,8 @@ fn run_headless<A: Attractor>(filename: &str, size: (usize, usize)) {
     for (i, line) in lines {
         let Some(params) = parse_params(line, A::PARAM_NAMES) else {
             eprintln!(
-                "{filename}:{}: couldn't parse `{line}` as {} parameters ({})",
+                "{}:{}: couldn't parse `{line}` as {} parameters ({})",
+                filename.display(),
                 i + 1,
                 A::NAME,
                 A::PARAM_NAMES.join(", ")
@@ -102,6 +138,7 @@ fn run_headless<A: Attractor>(filename: &str, size: (usize, usize)) {
             Err(e) => eprintln!("Failed to save `{line}`: {e}"),
         }
     }
+    Ok(())
 }
 
 /// The windows and pixel buffers, kept when switching between kinds of attractor
@@ -184,4 +221,81 @@ fn run_interactively<A: Attractor>(windows: &mut Windows) -> Option<isize> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::error::ErrorKind;
+    use clap::CommandFactory;
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("attractors").chain(args.iter().copied()))
+    }
+
+    #[test]
+    fn clap_definition_is_valid() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn no_arguments_explores_clifford() {
+        let cli = parse(&[]).unwrap();
+        assert_eq!(cli.attractor, "clifford");
+        assert_eq!(cli.file, None);
+    }
+
+    #[test]
+    fn help_and_version_are_not_files() {
+        assert_eq!(
+            parse(&["--help"]).unwrap_err().kind(),
+            ErrorKind::DisplayHelp
+        );
+        assert_eq!(parse(&["-h"]).unwrap_err().kind(), ErrorKind::DisplayHelp);
+        assert_eq!(
+            parse(&["--version"]).unwrap_err().kind(),
+            ErrorKind::DisplayVersion
+        );
+    }
+
+    #[test]
+    fn help_lists_every_attractor() {
+        let help = Cli::command().render_long_help().to_string();
+        for name in attractor_names() {
+            assert!(help.contains(name), "{name} missing from:\n{help}");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_attractors_and_options() {
+        assert_eq!(
+            parse(&["-a", "nope"]).unwrap_err().kind(),
+            ErrorKind::InvalidValue
+        );
+        assert_eq!(
+            parse(&["--frobnicate"]).unwrap_err().kind(),
+            ErrorKind::UnknownArgument
+        );
+    }
+
+    #[test]
+    fn file_and_paper_size() {
+        let cli = parse(&["--attractor", "henon", "params.txt", "a3"]).unwrap();
+        assert_eq!(cli.attractor, "henon");
+        assert_eq!(cli.file, Some(PathBuf::from("params.txt")));
+        assert_eq!(cli.paper, Paper::A3);
+        assert_eq!(parse(&["params.txt", "A5"]).unwrap().paper, Paper::A5);
+        assert_eq!(parse(&["params.txt"]).unwrap().paper, Paper::A0);
+        assert_eq!(
+            parse(&["params.txt", "B4"]).unwrap_err().kind(),
+            ErrorKind::InvalidValue
+        );
+    }
+
+    #[test]
+    fn missing_file_is_an_error_not_a_crash() {
+        let missing = Path::new("/definitely/not/here.txt");
+        let err = run_headless::<CliffordAttractor>(missing, A5_600_DPI).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+    }
 }
