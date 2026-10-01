@@ -69,10 +69,11 @@ pub fn blend_and_colour(
 
 /// Render `attractor` at `size` into a PNG inside `directory`, returning the file path.
 ///
-/// Uses its own walkers, so the caller's sampler is not advanced. Rows are streamed
-/// to the encoder, so memory is one `u32` per pixel.
+/// Continues from a copy of `sampler`, so the image is framed like the preview and the caller's
+/// sampler is not advanced. Rows are streamed to the encoder, so memory is one `u32` per pixel.
 pub fn save_png<A: Attractor>(
     attractor: &A,
+    sampler: &Sampler,
     size: (usize, usize),
     view: &View,
     power: f64,
@@ -81,7 +82,7 @@ pub fn save_png<A: Attractor>(
     let (width, height) = size;
     let total_steps = (width as f64 * height as f64 * SAVE_STEPS_PER_PIXEL) as usize;
     let mut hist = Histogram::new(width, height);
-    let mut sampler = Sampler::default();
+    let mut sampler = sampler.clone();
 
     let chunk = 10_000_000;
     print!("Stepping {total_steps} times ");
@@ -100,7 +101,7 @@ pub fn save_png<A: Attractor>(
     std::fs::create_dir_all(directory)?;
     let path = directory.join(format!(
         "{},size={}x{},iters={}.png",
-        format_params(attractor.params()),
+        format_params(A::PARAM_NAMES, attractor.params()),
         width,
         height,
         hist.steps

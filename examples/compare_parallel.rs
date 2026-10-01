@@ -42,10 +42,13 @@ struct Run {
 
 impl Run {
     /// `None` uses the default multi-core sampler, otherwise one trajectory from `start`
-    fn new(params: [f64; 4], start: Option<(f64, f64)>) -> Self {
+    fn new(params: &[f64], start: Option<(f64, f64)>) -> Self {
         Run {
-            attractor: CliffordAttractor::new(params),
-            sampler: start.map_or_else(Sampler::default, |s| Sampler::new(1, s)),
+            attractor: CliffordAttractor::from_params(params),
+            sampler: start.map_or_else(
+                || Sampler::new(CliffordAttractor::START),
+                |s| Sampler::with_walkers(1, s),
+            ),
             hist: Histogram::new(SIZE, SIZE),
         }
     }
@@ -66,13 +69,13 @@ fn main() {
     let total_steps: usize = args.get(3).map_or(40_000_000, |s| s.parse().unwrap());
     fs::create_dir_all(out_dir).unwrap();
 
-    let specials: Vec<[f64; 4]> = fs::read_to_string("cache/clifford/special.txt")
+    let specials: Vec<Vec<f64>> = fs::read_to_string("cache/clifford/special.txt")
         .unwrap()
         .lines()
-        .filter_map(parse_params)
+        .filter_map(|l| parse_params(l, CliffordAttractor::PARAM_NAMES))
         .collect();
-    let mut chosen = vec![CliffordAttractor::DEFAULT_PARAMS];
-    chosen.extend((0..n_params - 1).map(|i| specials[i * specials.len() / (n_params - 1)]));
+    let mut chosen = vec![CliffordAttractor::DEFAULT_PARAMS.to_vec()];
+    chosen.extend((0..n_params - 1).map(|i| specials[i * specials.len() / (n_params - 1)].clone()));
 
     let checkpoints: Vec<usize> = (1..=CHECKPOINTS)
         .map(|i| total_steps >> (2 * (CHECKPOINTS - i)))
@@ -80,7 +83,7 @@ fn main() {
     let mut jsonl = BufWriter::new(File::create(out_dir.join("results.jsonl")).unwrap());
     let mut rows = String::new();
 
-    for (idx, &params) in chosen.iter().enumerate() {
+    for (idx, params) in chosen.iter().enumerate() {
         let mut runs = [
             Run::new(params, Some((0.0, 0.0))),
             Run::new(params, Some((1.3, -0.7))),
@@ -117,7 +120,7 @@ fn main() {
         writeln!(
             jsonl,
             "{{\"idx\":{idx},\"params\":\"{}\",\"checkpoints\":[{}]}}",
-            format_params(params),
+            format_params(CliffordAttractor::PARAM_NAMES, params),
             json_checkpoints.join(",")
         )
         .unwrap();
@@ -130,7 +133,7 @@ fn main() {
         let cells = cells.trim_end_matches("<tr>");
         rows.push_str(&format!(
             "<tr><td rowspan=\"{CHECKPOINTS}\"><code>{}</code><br>{images}</td>{cells}\n",
-            format_params(params)
+            format_params(CliffordAttractor::PARAM_NAMES, params)
         ));
     }
 

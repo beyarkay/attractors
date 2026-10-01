@@ -18,7 +18,12 @@ fn main() {
 }
 
 fn pixel(c: &CliffordAttractor, x: f64, y: f64) -> Option<usize> {
-    let (xmin, xmax, ymin, ymax) = c.bounds();
+    let attractors::Bounds {
+        xmin,
+        xmax,
+        ymin,
+        ymax,
+    } = c.bounds().unwrap();
     let nx = (x - xmin) / (xmax - xmin);
     let ny = (y - ymin) / (ymax - ymin);
     if !((0.0..1.0).contains(&nx) && (0.0..1.0).contains(&ny)) {
@@ -53,7 +58,7 @@ fn spawn_only(bencher: divan::Bencher, threads: usize) {
 
 #[divan::bench(args = THREADS)]
 fn formula_only(bencher: divan::Bencher, threads: usize) {
-    let c = CliffordAttractor::new(CliffordAttractor::DEFAULT_PARAMS);
+    let c = CliffordAttractor::from_params(CliffordAttractor::DEFAULT_PARAMS);
     let starts = starts(&c, threads);
     bencher.bench_local(|| {
         thread::scope(|s| {
@@ -73,7 +78,7 @@ fn formula_only(bencher: divan::Bencher, threads: usize) {
 
 #[divan::bench(args = THREADS)]
 fn shared_atomic_counts(bencher: divan::Bencher, threads: usize) {
-    let c = CliffordAttractor::new(CliffordAttractor::DEFAULT_PARAMS);
+    let c = CliffordAttractor::from_params(CliffordAttractor::DEFAULT_PARAMS);
     let starts = starts(&c, threads);
     let counts: Vec<AtomicU32> = (0..WIDTH * HEIGHT).map(|_| AtomicU32::new(0)).collect();
     bencher.bench_local(|| {
@@ -96,7 +101,7 @@ fn shared_atomic_counts(bencher: divan::Bencher, threads: usize) {
 
 #[divan::bench(args = THREADS)]
 fn per_thread_counts_then_merge(bencher: divan::Bencher, threads: usize) {
-    let c = CliffordAttractor::new(CliffordAttractor::DEFAULT_PARAMS);
+    let c = CliffordAttractor::from_params(CliffordAttractor::DEFAULT_PARAMS);
     let starts = starts(&c, threads);
     let mut locals = vec![vec![0u32; WIDTH * HEIGHT]; threads];
     let mut total = vec![0u32; WIDTH * HEIGHT];
@@ -138,7 +143,7 @@ fn per_thread_counts_then_merge(bencher: divan::Bencher, threads: usize) {
 /// Ten frames' worth in one burst, to see whether short bursts stop extra cores helping
 #[divan::bench(args = THREADS, sample_count = 20)]
 fn formula_only_5m(bencher: divan::Bencher, threads: usize) {
-    let c = CliffordAttractor::new(CliffordAttractor::DEFAULT_PARAMS);
+    let c = CliffordAttractor::from_params(CliffordAttractor::DEFAULT_PARAMS);
     let starts = starts(&c, threads);
     bencher.bench_local(|| {
         thread::scope(|s| {
@@ -160,7 +165,7 @@ fn formula_only_5m(bencher: divan::Bencher, threads: usize) {
 #[divan::bench(args = THREADS, sample_count = 20)]
 fn formula_only_5m_work_queue(bencher: divan::Bencher, threads: usize) {
     const PIECES: usize = 400;
-    let c = CliffordAttractor::new(CliffordAttractor::DEFAULT_PARAMS);
+    let c = CliffordAttractor::from_params(CliffordAttractor::DEFAULT_PARAMS);
     let starts = starts(&c, threads);
     bencher.bench_local(|| {
         let next_piece = std::sync::atomic::AtomicUsize::new(0);

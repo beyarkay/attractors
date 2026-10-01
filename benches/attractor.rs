@@ -10,8 +10,8 @@ fn main() {
 }
 
 fn warm_histogram(size: (usize, usize), steps: usize) -> (CliffordAttractor, Sampler, Histogram) {
-    let c = CliffordAttractor::new(CliffordAttractor::DEFAULT_PARAMS);
-    let mut sampler = Sampler::default();
+    let c = CliffordAttractor::from_params(CliffordAttractor::DEFAULT_PARAMS);
+    let mut sampler = Sampler::new(CliffordAttractor::START);
     let mut hist = Histogram::new(size.0, size.1);
     sampler.step(&c, steps, &mut hist, &View::default());
     (c, sampler, hist)
@@ -37,10 +37,10 @@ fn colour_preview_frame(bencher: divan::Bencher) {
 #[divan::bench]
 fn parameter_change(bencher: divan::Bencher) {
     let (mut c, mut sampler, mut hist) = warm_histogram(PREVIEW, 10_000_000);
-    let mut a = c.a;
+    let mut a = c.params()[0];
     bencher.bench_local(|| {
         a += 1e-3;
-        c.set_params([Some(a), None, None, None]);
+        c = c.with_param(0, a);
         sampler.reset();
         hist.clear();
         sampler.step(&c, 500_000, &mut hist, &View::default());
@@ -58,7 +58,7 @@ fn write_png_a5(bencher: divan::Bencher) {
 /// The formula alone on one core, with no histogram writes.
 #[divan::bench]
 fn formula_only_500k(bencher: divan::Bencher) {
-    let c = CliffordAttractor::new(CliffordAttractor::DEFAULT_PARAMS);
+    let c = CliffordAttractor::from_params(CliffordAttractor::DEFAULT_PARAMS);
     bencher.bench_local(|| {
         let (mut x, mut y) = (0.0, 0.0);
         for _ in 0..500_000 {
@@ -71,8 +71,8 @@ fn formula_only_500k(bencher: divan::Bencher) {
 /// Full stepping of one trajectory on one core.
 #[divan::bench]
 fn step_500k_one_core(bencher: divan::Bencher) {
-    let c = CliffordAttractor::new(CliffordAttractor::DEFAULT_PARAMS);
-    let mut sampler = Sampler::new(1, (0.0, 0.0));
+    let c = CliffordAttractor::from_params(CliffordAttractor::DEFAULT_PARAMS);
+    let mut sampler = Sampler::with_walkers(1, CliffordAttractor::START);
     let mut hist = Histogram::new(PREVIEW.0, PREVIEW.1);
     sampler.step(&c, 0, &mut hist, &View::default());
     bencher.bench_local(|| {
@@ -87,8 +87,8 @@ const WALKERS: [usize; 4] = [10, 20, 40, 80];
 /// A steady frame with different walker counts: more walkers balance slow cores better.
 #[divan::bench(args = WALKERS)]
 fn step_500k_walkers(bencher: divan::Bencher, walkers: usize) {
-    let c = CliffordAttractor::new(CliffordAttractor::DEFAULT_PARAMS);
-    let mut sampler = Sampler::new(walkers, (0.0, 0.0));
+    let c = CliffordAttractor::from_params(CliffordAttractor::DEFAULT_PARAMS);
+    let mut sampler = Sampler::with_walkers(walkers, CliffordAttractor::START);
     let mut hist = Histogram::new(PREVIEW.0, PREVIEW.1);
     sampler.step(&c, 0, &mut hist, &View::default());
     bencher.bench_local(|| sampler.step(&c, 500_000, &mut hist, &View::default()));
@@ -97,13 +97,13 @@ fn step_500k_walkers(bencher: divan::Bencher, walkers: usize) {
 /// A parameter change with different walker counts: more walkers mean more warm-up.
 #[divan::bench(args = WALKERS)]
 fn parameter_change_walkers(bencher: divan::Bencher, walkers: usize) {
-    let mut c = CliffordAttractor::new(CliffordAttractor::DEFAULT_PARAMS);
-    let mut sampler = Sampler::new(walkers, (0.0, 0.0));
+    let mut c = CliffordAttractor::from_params(CliffordAttractor::DEFAULT_PARAMS);
+    let mut sampler = Sampler::with_walkers(walkers, CliffordAttractor::START);
     let mut hist = Histogram::new(PREVIEW.0, PREVIEW.1);
-    let mut a = c.a;
+    let mut a = c.params()[0];
     bencher.bench_local(|| {
         a += 1e-3;
-        c.set_params([Some(a), None, None, None]);
+        c = c.with_param(0, a);
         sampler.reset();
         hist.clear();
         sampler.step(&c, 500_000, &mut hist, &View::default());
