@@ -1,4 +1,4 @@
-use attractors::render::{blend_and_colour, write_png, Look};
+use attractors::render::{blend_and_colour, write_png, Look, Tone};
 use attractors::{Attractor, CliffordAttractor, Histogram, Sampler, View};
 
 const PREVIEW: (usize, usize) = (636, 900);
@@ -107,4 +107,11 @@ fn parameter_change_walkers(bencher: divan::Bencher, walkers: usize) {
         hist.clear();
         sampler.step(&c, 500_000, &mut hist, &View::default());
     });
+}
+
+/// Finding the brightness scale for a preview frame, part of colour_preview_frame.
+#[divan::bench]
+fn tone_preview_frame(bencher: divan::Bencher) {
+    let (_, _, hist) = warm_histogram(PREVIEW, 10_000_000);
+    bencher.bench_local(|| Tone::new(&hist, 0.5));
 }

@@ -19,6 +19,13 @@ const PREVIEW_MATCH: f64 = 0.5;
 /// everything else dark.
 const SATURATED_FRACTION: f64 = 0.005;
 
+/// Only every this many pixels is looked at to find the brightness scale
+const TONE_SAMPLE_STRIDE: usize = 4;
+/// Hit counts below this have their brightness looked up rather than computed
+const BRIGHTNESS_TABLE_SIZE: usize = 4096;
+/// Entries in the per-frame colour table, which has contrast already applied
+const COLOUR_TABLE_SIZE: usize = 4096;
+
 enum Gradient {
     Colorous(colorous::Gradient),
     /// `(position, rgb)` stops with positions increasing from 0.0 to 1.0
@@ -236,7 +243,14 @@ pub struct Tone {
 
 impl Tone {
     pub fn new(hist: &Histogram, extra_scale: f64) -> Self {
-        let mut lit: Vec<u32> = hist.counts.iter().copied().filter(|&c| c > 0).collect();
+        let lit_counts = |stride: usize| -> Vec<u32> {
+            let counts = hist.counts.iter().step_by(stride).copied();
+            counts.filter(|&c| c > 0).collect()
+        };
+        let mut lit = lit_counts(TONE_SAMPLE_STRIDE);
+        if lit.is_empty() {
+            lit = lit_counts(1);
+        }
         if lit.is_empty() {
             return Tone {
                 scale: 0.0,
@@ -258,6 +272,43 @@ impl Tone {
     }
 }
 
+/// Everything needed to colour one frame, precomputed so most pixels need two table lookups
+struct FrameColours {
+    tone: Tone,
+    brightness: Vec<f64>,
+    colours: Vec<u32>,
+}
+
+impl FrameColours {
+    fn new(tone: Tone, look: &Look) -> Self {
+        let last = (COLOUR_TABLE_SIZE - 1) as f64;
+        FrameColours {
+            brightness: (0..BRIGHTNESS_TABLE_SIZE as u32)
+                .map(|count| tone.brightness(count))
+                .collect(),
+            colours: (0..COLOUR_TABLE_SIZE)
+                .map(|i| colour_u32(i as f64 / last, look))
+                .collect(),
+            tone,
+        }
+    }
+
+    #[inline(always)]
+    fn brightness(&self, count: u32) -> f64 {
+        match self.brightness.get(count as usize) {
+            Some(&b) => b,
+            None => self.tone.brightness(count),
+        }
+    }
+
+    /// Colour at brightness `t` in [0, 1], packed as 0x00RRGGBB
+    #[inline(always)]
+    fn colour_u32(&self, t: f64) -> u32 {
+        let last = (COLOUR_TABLE_SIZE - 1) as f64;
+        self.colours[(t.clamp(0.0, 1.0) * last + 0.5) as usize]
+    }
+}
+
 /// Blend this frame's brightnesses into `prev` (see `noodle_factor`) and colour them into
 /// `out`, split across all cores.
 pub fn blend_and_colour(
@@ -268,8 +319,8 @@ pub fn blend_and_colour(
     out: &mut [u32],
 ) {
     assert!(prev.len() == hist.counts.len() && out.len() == hist.counts.len());
-    let tone = Tone::new(hist, PREVIEW_MATCH);
-    let tone = &tone;
+    let frame = FrameColours::new(Tone::new(hist, PREVIEW_MATCH), look);
+    let frame = &frame;
     let chunk = hist.counts.len().div_ceil(num_threads());
     thread::scope(|s| {
         for ((counts, prev), out) in hist
@@ -280,8 +331,8 @@ pub fn blend_and_colour(
         {
             s.spawn(move || {
                 for ((&count, p), o) in counts.iter().zip(prev).zip(out) {
-                    *p = noodle_factor * tone.brightness(count) + (1.0 - noodle_factor) * *p;
-                    *o = colour_u32(*p, look);
+                    *p = noodle_factor * frame.brightness(count) + (1.0 - noodle_factor) * *p;
+                    *o = frame.colour_u32(*p);
                 }
             });
         }
@@ -345,11 +396,12 @@ pub fn write_png(hist: &Histogram, look: &Look, path: &Path) -> io::Result<()> {
         .into_stream_writer()
         .map_err(io::Error::other)?;
 
-    let tone = Tone::new(hist, 1.0);
+    let frame = FrameColours::new(Tone::new(hist, 1.0), look);
     let mut row = vec![0u8; hist.width * 3];
     for counts in hist.counts.chunks_exact(hist.width) {
         for (pixel, &count) in row.as_chunks_mut::<3>().0.iter_mut().zip(counts) {
-            *pixel = colour(tone.brightness(count), look);
+            let [_, r, g, b] = frame.colour_u32(frame.brightness(count)).to_be_bytes();
+            *pixel = [r, g, b];
         }
         writer.write_all(&row)?;
     }
@@ -425,5 +477,42 @@ mod tests {
             let (a, b) = (few_tone.brightness(*a), many_tone.brightness(*b));
             assert!((a - b).abs() < 1e-9, "{a} vs {b}");
         }
+    }
+
+    #[test]
+    fn frame_colours_match_direct_calculation() {
+        let mut hist = Histogram::new(2_000, 1);
+        hist.counts = (0..2_000).map(|i| i * 11).collect();
+        hist.steps = 1_000_000;
+        for contrast in [0.2, 0.5, 1.0, 2.0, 5.0] {
+            let look = Look {
+                palette: 1,
+                contrast,
+            };
+            let tone = Tone::new(&hist, 1.0);
+            let expected: Vec<[u8; 3]> = hist
+                .counts
+                .iter()
+                .map(|&c| colour(tone.brightness(c), &look))
+                .collect();
+            let frame = FrameColours::new(tone, &look);
+            for (&count, e) in hist.counts.iter().zip(expected) {
+                let [_, r, g, b] = frame.colour_u32(frame.brightness(count)).to_be_bytes();
+                for (a, e) in [r, g, b].iter().zip(e) {
+                    assert!(
+                        a.abs_diff(e) <= 3,
+                        "contrast {contrast} count {count}: {a} vs {e}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_single_lit_pixel_missed_by_sampling_is_still_found() {
+        let mut hist = Histogram::new(8, 1);
+        hist.counts[3] = 50;
+        hist.steps = 50;
+        assert!(Tone::new(&hist, 1.0).brightness(50) > 0.99);
     }
 }
