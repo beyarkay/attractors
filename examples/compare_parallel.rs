@@ -11,13 +11,12 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-use attractors::render::write_png;
+use attractors::render::{write_png, Look};
 use attractors::{
     format_params, parse_params, Attractor, CliffordAttractor, Histogram, Sampler, View,
 };
 
 const SIZE: usize = 400;
-const POWER: f64 = 0.15;
 const CHECKPOINTS: usize = 4;
 
 fn tv_distance(a: &Histogram, b: &Histogram) -> f64 {
@@ -109,7 +108,7 @@ fn main() {
         for (run, name) in runs.iter().zip(names) {
             write_png(
                 &run.hist,
-                POWER,
+                &Look::default(),
                 &out_dir.join(format!("{idx:02}_{name}.png")),
             )
             .unwrap();

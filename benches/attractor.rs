@@ -1,9 +1,8 @@
-use attractors::render::{blend_and_colour, write_png};
+use attractors::render::{blend_and_colour, write_png, Look};
 use attractors::{Attractor, CliffordAttractor, Histogram, Sampler, View};
 
 const PREVIEW: (usize, usize) = (636, 900);
 const A5: (usize, usize) = (3506, 4960);
-const POWER: f64 = 0.15;
 
 fn main() {
     divan::main();
@@ -30,7 +29,7 @@ fn colour_preview_frame(bencher: divan::Bencher) {
     let (_, _, hist) = warm_histogram(PREVIEW, 10_000_000);
     let mut prev = vec![0.0; PREVIEW.0 * PREVIEW.1];
     let mut buffer = vec![0u32; PREVIEW.0 * PREVIEW.1];
-    bencher.bench_local(|| blend_and_colour(&hist, &mut prev, 0.9, POWER, &mut buffer));
+    bencher.bench_local(|| blend_and_colour(&hist, &mut prev, 0.9, &Look::default(), &mut buffer));
 }
 
 /// What a parameter change costs before the first new frame can be drawn, including warm-up.
@@ -51,7 +50,7 @@ fn parameter_change(bencher: divan::Bencher) {
 fn write_png_a5(bencher: divan::Bencher) {
     let (_, _, hist) = warm_histogram(A5, A5.0 * A5.1);
     let path = std::env::temp_dir().join("attractors_bench.png");
-    bencher.bench_local(|| write_png(&hist, POWER, &path).unwrap());
+    bencher.bench_local(|| write_png(&hist, &Look::default(), &path).unwrap());
     let _ = std::fs::remove_file(path);
 }
 

@@ -4,7 +4,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use attractors::render::{blend_and_colour, save_png};
+use attractors::render::{blend_and_colour, save_png, Look, PALETTES};
 use attractors::*;
 use minifb::{CursorStyle, Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 use rand::Rng;
@@ -25,7 +25,6 @@ const WIDTH: usize = ISO_PAPER_FORMAT.0;
 const HEIGHT: usize = ISO_PAPER_FORMAT.1;
 const MIN_NUM_STEPS: usize = 500_000;
 const MAX_PREVIEW_STEPS: usize = 10_000_000;
-const DEFAULT_POWER: f64 = 0.15;
 
 /// The attractor the explorer and headless renderer use
 type Explored = CliffordAttractor;
@@ -85,7 +84,7 @@ fn run_headless<A: Attractor>(filename: &str, paper: &str) {
             &attractor,
             size,
             &View::default(),
-            DEFAULT_POWER,
+            &Look::default(),
             &output_dir::<A>(),
         ) {
             Ok(path) => println!("Saved {}", path.display()),
@@ -105,8 +104,7 @@ struct State<A> {
     noodle_factor: f64,
     /// How much each key press changes a parameter
     delta: f64,
-    /// Densities are raised to this power before colouring
-    power: f64,
+    look: Look,
 }
 
 impl<A: Attractor + Display> State<A> {
@@ -204,7 +202,7 @@ fn commands<A: Attractor + Display>() -> Vec<Command<A>> {
             description: "Save the attractor as an A3 png (Shift: A0)",
             action: |s, shift| {
                 let size = if shift { A0_600_DPI } else { A3_600_DPI };
-                match save_png(&s.attractor, size, &s.view, s.power, &output_dir::<A>()) {
+                match save_png(&s.attractor, size, &s.view, &s.look, &output_dir::<A>()) {
                     Ok(path) => println!("Saved {}", path.display()),
                     Err(e) => eprintln!("Failed to save: {e}"),
                 }
@@ -241,10 +239,21 @@ fn commands<A: Attractor + Display>() -> Vec<Command<A>> {
             key: Key::D,
             repeat: true,
             enabled: true,
-            description: "Increase the colour power by delta, so dim pixels get darker (Shift: decrease)",
+            description: "Increase contrast, so faint areas get darker (Shift: decrease)",
             action: |s, shift| {
-                s.power = (s.power + sign(shift) * s.delta).clamp(0.01, 1.0);
-                println!("power: {:.4}", s.power);
+                s.look.contrast = (s.look.contrast * 1.05_f64.powf(sign(shift))).clamp(0.2, 5.0);
+                println!("contrast: {:.2}", s.look.contrast);
+            },
+        },
+        Command {
+            key: Key::C,
+            repeat: false,
+            enabled: true,
+            description: "Next colour palette (Shift: previous)",
+            action: |s, shift| {
+                let n = PALETTES.len();
+                s.look.palette = (s.look.palette + if shift { n - 1 } else { 1 }) % n;
+                println!("palette: {}", s.look.palette().name);
             },
         },
         Command {
@@ -321,7 +330,7 @@ fn run_interactively<A: Attractor + Display>() {
         specials,
         noodle_factor: 0.9,
         delta: 0.1,
-        power: DEFAULT_POWER,
+        look: Look::default(),
     };
     println!("{:#}", state.attractor);
 
@@ -360,7 +369,7 @@ fn run_interactively<A: Attractor + Display>() {
             &state.hist,
             &mut prev_densities,
             state.noodle_factor,
-            state.power,
+            &state.look,
             &mut buffer,
         );
 
