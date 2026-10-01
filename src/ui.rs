@@ -706,12 +706,16 @@ fn draw_map<A: Attractor>(
     let mut mouse_in_a_plot = false;
     for (plt_idx, &(x_offset, y_offset)) in PLOT_AXES.iter().enumerate() {
         let (xi, yi) = (window_start + x_offset, window_start + y_offset);
-        if xi >= params.len() || yi >= params.len() {
+        // With a single parameter the top left plot is a slider: its y axis is unused
+        let slider = params.len() == 1 && plt_idx == 0;
+        if xi >= params.len() || (yi >= params.len() && !slider) {
             continue;
         }
         let plot = plot_rect(plt_idx);
+        let middle = 0.5 * (range.0 + range.1);
+        let y_of = |p: &[f64]| if slider { middle } else { p[yi] };
 
-        let (zero_x, zero_y) = plot.param_to_px(0.0, 0.0, range);
+        let (zero_x, zero_y) = plot.param_to_px(0.0, if slider { middle } else { 0.0 }, range);
         let x_border = MAP_WIDTH / 100;
         for x in (plot.left + x_border)..(plot.right - x_border) {
             plot.set(map_buf, x as isize, zero_y, color_axes);
@@ -724,9 +728,9 @@ fn draw_map<A: Attractor>(
         // Specials are brighter the closer they are to the current parameters on every axis
         // this plot doesn't show, measured relative to the parameter range
         let width = range.1 - range.0;
-        let others = (params.len() - 2).max(1) as f64;
+        let others = params.len().saturating_sub(2).max(1) as f64;
         for special in specials {
-            let (mx, my) = plot.param_to_px(special[xi], special[yi], range);
+            let (mx, my) = plot.param_to_px(special[xi], y_of(special), range);
             let squared: f64 = (0..params.len())
                 .filter(|&k| k != xi && k != yi)
                 .map(|k| (params[k] - special[k]).powi(2))
@@ -751,7 +755,7 @@ fn draw_map<A: Attractor>(
         }
 
         // Cross-hairs on the current parameters, leaving the centre clear
-        let (x, y) = plot.param_to_px(params[xi], params[yi], range);
+        let (x, y) = plot.param_to_px(params[xi], y_of(params), range);
         for delta in (-30..30).step_by(3).filter(|d: &isize| d.abs() >= 10) {
             plot.set(map_buf, x + delta, y, MAP_CROSSHAIRS);
             plot.set(map_buf, x, y + delta, MAP_CROSSHAIRS);
@@ -764,7 +768,9 @@ fn draw_map<A: Attractor>(
                 if mouse_down {
                     let (px, py) = plot.px_to_param(mousex, mousey, range);
                     new_params.push((xi, px));
-                    new_params.push((yi, py));
+                    if !slider {
+                        new_params.push((yi, py));
+                    }
                 }
             }
         }
@@ -957,6 +963,16 @@ mod tests {
         assert_eq!(map_pixel(&b, x + 12, y), MAP_CROSSHAIRS);
         assert_eq!(map_pixel(&b, x, y - 12), MAP_CROSSHAIRS);
         assert_ne!(map_pixel(&b, x, y), MAP_CROSSHAIRS);
+    }
+
+    #[test]
+    fn one_parameter_attractors_get_a_slider() {
+        let (mut e, mut b) = explorer::<crate::attractors::IkedaAttractor>("slider");
+        // u = 0.9 on a range of 0 to 1 is 90% of the way across the top left plot
+        press(&mut e, &mut b, Input::default());
+        assert_eq!(map_pixel(&b, 270 + 12, 150), MAP_CROSSHAIRS);
+        press(&mut e, &mut b, Input::click_map(150.0, 40.0));
+        assert_params(e.attractor().params(), &[0.5]);
     }
 
     #[test]

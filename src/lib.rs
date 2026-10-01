@@ -24,7 +24,16 @@ macro_rules! all_attractors {
             $crate::DuffingAttractor,
             $crate::LoziAttractor,
             $crate::BedheadAttractor,
-            $crate::SvenssonAttractor
+            $crate::SvenssonAttractor,
+            $crate::LorenzAttractor,
+            $crate::RosslerAttractor,
+            $crate::AizawaAttractor,
+            $crate::ThomasAttractor,
+            $crate::HalvorsenAttractor,
+            $crate::ChenAttractor,
+            $crate::ArneodoAttractor,
+            $crate::BurkeShawAttractor,
+            $crate::YuWangAttractor
         )
     };
 }

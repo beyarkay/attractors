@@ -415,6 +415,8 @@ impl Attractor for GumowskiMiraAttractor {
     const PARAM_NAMES: &'static [&'static str] = &["a", "s", "mu"];
     const DEFAULT_PARAMS: &'static [f64] = &[0.008, 0.05, -0.496];
     const PARAM_RANGE: (f64, f64) = (-1.0, 1.0);
+    /// a and s are only a few hundredths
+    const STEP: f64 = 0.001;
     const START: Point = [0.1, 0.1, 0.0];
 
     fn from_params(params: &[f64]) -> Self {
@@ -605,6 +607,341 @@ impl Attractor for SvenssonAttractor {
             c * (a * x).cos() + (b * y).cos(),
             0.0,
         ]
+    }
+}
+
+/// One fourth-order Runge-Kutta step of length `dt` along the flow `dp/dt = derivative(p)`
+#[inline(always)]
+pub fn rk4(p: Point, dt: f64, derivative: impl Fn(Point) -> Point) -> Point {
+    let along = |k: Point, h: f64| [p[0] + h * k[0], p[1] + h * k[1], p[2] + h * k[2]];
+    let k1 = derivative(p);
+    let k2 = derivative(along(k1, dt / 2.0));
+    let k3 = derivative(along(k2, dt / 2.0));
+    let k4 = derivative(along(k3, dt));
+    [0, 1, 2].map(|i| p[i] + dt / 6.0 * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]))
+}
+
+/// [Edward Lorenz](https://en.wikipedia.org/wiki/Lorenz_system)'s model of convection, a flow integrated in steps of 0.005
+#[derive(Debug, Clone)]
+pub struct LorenzAttractor {
+    p: [f64; 3],
+}
+
+impl Attractor for LorenzAttractor {
+    const NAME: &'static str = "lorenz";
+    const FORMULA: &'static str = "x' = s (y - x)\ny' = x (r - z) - y\nz' = x y - b z";
+    const PARAM_NAMES: &'static [&'static str] = &["s", "r", "b"];
+    const DEFAULT_PARAMS: &'static [f64] = &[10.0, 28.0, 8.0 / 3.0];
+    const PARAM_RANGE: (f64, f64) = (0.0, 30.0);
+    const START: Point = [1.0, 1.0, 1.0];
+    const PROJECTION: (usize, usize) = (0, 2);
+    const STEP: f64 = 0.5;
+
+    fn from_params(params: &[f64]) -> Self {
+        LorenzAttractor {
+            p: params.try_into().expect("3 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, p: Point) -> Point {
+        rk4(p, 0.005, |[x, y, z]| {
+            let [s, r, b] = self.p;
+            [s * (y - x), x * (r - z) - y, x * y - b * z]
+        })
+    }
+}
+
+/// [Otto Rössler](https://en.wikipedia.org/wiki/R%C3%B6ssler_attractor)'s attractor, a flow integrated in steps of 0.02
+#[derive(Debug, Clone)]
+pub struct RosslerAttractor {
+    p: [f64; 3],
+}
+
+impl Attractor for RosslerAttractor {
+    const NAME: &'static str = "rossler";
+    const FORMULA: &'static str = "x' = -y - z\ny' = x + a y\nz' = b + z (x - c)";
+    const PARAM_NAMES: &'static [&'static str] = &["a", "b", "c"];
+    const DEFAULT_PARAMS: &'static [f64] = &[0.2, 0.2, 5.7];
+    const PARAM_RANGE: (f64, f64) = (0.0, 10.0);
+    const START: Point = [1.0, 1.0, 0.0];
+    const PROJECTION: (usize, usize) = (0, 1);
+    const STEP: f64 = 0.05;
+
+    fn from_params(params: &[f64]) -> Self {
+        RosslerAttractor {
+            p: params.try_into().expect("3 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, p: Point) -> Point {
+        rk4(p, 0.02, |[x, y, z]| {
+            let [a, b, c] = self.p;
+            [-y - z, x + a * y, b + z * (x - c)]
+        })
+    }
+}
+
+/// Yoji Aizawa's attractor, a flow integrated in steps of 0.01
+#[derive(Debug, Clone)]
+pub struct AizawaAttractor {
+    p: [f64; 6],
+}
+
+impl Attractor for AizawaAttractor {
+    const NAME: &'static str = "aizawa";
+    const FORMULA: &'static str = "x' = (z - b) x - d y\ny' = d x + (z - b) y\nz' = c + a z - z^3 / 3 - (x^2 + y^2)(1 + e z) + f z x^3";
+    const PARAM_NAMES: &'static [&'static str] = &["a", "b", "c", "d", "e", "f"];
+    const DEFAULT_PARAMS: &'static [f64] = &[0.95, 0.7, 0.6, 3.5, 0.25, 0.1];
+    const PARAM_RANGE: (f64, f64) = (-1.0, 4.0);
+    const START: Point = [0.1, 0.0, 0.0];
+    const PROJECTION: (usize, usize) = (0, 2);
+    const STEP: f64 = 0.01;
+
+    fn from_params(params: &[f64]) -> Self {
+        AizawaAttractor {
+            p: params.try_into().expect("6 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, p: Point) -> Point {
+        rk4(p, 0.01, |[x, y, z]| {
+            let [a, b, c, d, e, f] = self.p;
+            [
+                (z - b) * x - d * y,
+                d * x + (z - b) * y,
+                c + a * z - z * z * z / 3.0 - (x * x + y * y) * (1.0 + e * z) + f * z * x * x * x,
+            ]
+        })
+    }
+}
+
+/// René Thomas's cyclically symmetric attractor, a flow integrated in steps of 0.05
+#[derive(Debug, Clone)]
+pub struct ThomasAttractor {
+    p: [f64; 1],
+}
+
+impl Attractor for ThomasAttractor {
+    const NAME: &'static str = "thomas";
+    const FORMULA: &'static str = "x' = sin(y) - b x\ny' = sin(z) - b y\nz' = sin(x) - b z";
+    const PARAM_NAMES: &'static [&'static str] = &["b"];
+    const DEFAULT_PARAMS: &'static [f64] = &[0.208186];
+    const PARAM_RANGE: (f64, f64) = (0.0, 0.5);
+    const START: Point = [0.1, 0.0, 0.0];
+    const PROJECTION: (usize, usize) = (0, 1);
+    const STEP: f64 = 0.001;
+
+    fn from_params(params: &[f64]) -> Self {
+        ThomasAttractor {
+            p: params.try_into().expect("1 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, p: Point) -> Point {
+        rk4(p, 0.05, |[x, y, z]| {
+            let [b] = self.p;
+            [y.sin() - b * x, z.sin() - b * y, x.sin() - b * z]
+        })
+    }
+}
+
+/// Arne Dehli Halvorsen's cyclically symmetric attractor, a flow integrated in steps of 0.005
+#[derive(Debug, Clone)]
+pub struct HalvorsenAttractor {
+    p: [f64; 1],
+}
+
+impl Attractor for HalvorsenAttractor {
+    const NAME: &'static str = "halvorsen";
+    const FORMULA: &'static str =
+        "x' = -a x - 4 y - 4 z - y^2\ny' = -a y - 4 z - 4 x - z^2\nz' = -a z - 4 x - 4 y - x^2";
+    const PARAM_NAMES: &'static [&'static str] = &["a"];
+    const DEFAULT_PARAMS: &'static [f64] = &[1.4];
+    const PARAM_RANGE: (f64, f64) = (0.0, 3.0);
+    const START: Point = [-1.48, -1.51, 2.04];
+    const PROJECTION: (usize, usize) = (0, 1);
+    const STEP: f64 = 0.01;
+
+    fn from_params(params: &[f64]) -> Self {
+        HalvorsenAttractor {
+            p: params.try_into().expect("1 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, p: Point) -> Point {
+        rk4(p, 0.005, |[x, y, z]| {
+            let [a] = self.p;
+            [
+                -a * x - 4.0 * y - 4.0 * z - y * y,
+                -a * y - 4.0 * z - 4.0 * x - z * z,
+                -a * z - 4.0 * x - 4.0 * y - x * x,
+            ]
+        })
+    }
+}
+
+/// Guanrong Chen's double scroll, a flow integrated in steps of 0.002
+#[derive(Debug, Clone)]
+pub struct ChenAttractor {
+    p: [f64; 3],
+}
+
+impl Attractor for ChenAttractor {
+    const NAME: &'static str = "chen";
+    const FORMULA: &'static str = "x' = a (y - x)\ny' = (c - a) x - x z + c y\nz' = x y - b z";
+    const PARAM_NAMES: &'static [&'static str] = &["a", "b", "c"];
+    const DEFAULT_PARAMS: &'static [f64] = &[35.0, 3.0, 28.0];
+    const PARAM_RANGE: (f64, f64) = (0.0, 40.0);
+    const START: Point = [-0.1, 0.5, -0.6];
+    const PROJECTION: (usize, usize) = (0, 2);
+    const STEP: f64 = 0.5;
+
+    fn from_params(params: &[f64]) -> Self {
+        ChenAttractor {
+            p: params.try_into().expect("3 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, p: Point) -> Point {
+        rk4(p, 0.002, |[x, y, z]| {
+            let [a, b, c] = self.p;
+            [a * (y - x), (c - a) * x - x * z + c * y, x * y - b * z]
+        })
+    }
+}
+
+/// [Alain Arneodo](http://paulbourke.net/fractals/arneodo/)'s attractor, a flow integrated in steps of 0.01
+#[derive(Debug, Clone)]
+pub struct ArneodoAttractor {
+    p: [f64; 3],
+}
+
+impl Attractor for ArneodoAttractor {
+    const NAME: &'static str = "arneodo";
+    const FORMULA: &'static str = "x' = y\ny' = z\nz' = -a x - b y - z + c x^3";
+    const PARAM_NAMES: &'static [&'static str] = &["a", "b", "c"];
+    const DEFAULT_PARAMS: &'static [f64] = &[-5.5, 3.5, -1.0];
+    const PARAM_RANGE: (f64, f64) = (-6.0, 6.0);
+    const START: Point = [0.1, 0.0, 0.0];
+    const PROJECTION: (usize, usize) = (0, 1);
+    const STEP: f64 = 0.1;
+
+    fn from_params(params: &[f64]) -> Self {
+        ArneodoAttractor {
+            p: params.try_into().expect("3 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, p: Point) -> Point {
+        rk4(p, 0.01, |[x, y, z]| {
+            let [a, b, c] = self.p;
+            [y, z, -a * x - b * y - z + c * x * x * x]
+        })
+    }
+}
+
+/// [Bill Burke and Robert Shaw](http://paulbourke.net/fractals/burkeshaw/)'s attractor, a flow integrated in steps of 0.005
+#[derive(Debug, Clone)]
+pub struct BurkeShawAttractor {
+    p: [f64; 2],
+}
+
+impl Attractor for BurkeShawAttractor {
+    const NAME: &'static str = "burkeshaw";
+    const FORMULA: &'static str = "x' = -s (x + y)\ny' = -y - s x z\nz' = s x y + v";
+    const PARAM_NAMES: &'static [&'static str] = &["s", "v"];
+    const DEFAULT_PARAMS: &'static [f64] = &[10.0, 4.272];
+    const PARAM_RANGE: (f64, f64) = (0.0, 12.0);
+    const START: Point = [0.6, 0.0, 0.0];
+    const PROJECTION: (usize, usize) = (0, 1);
+    const STEP: f64 = 0.1;
+
+    fn from_params(params: &[f64]) -> Self {
+        BurkeShawAttractor {
+            p: params.try_into().expect("2 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, p: Point) -> Point {
+        rk4(p, 0.005, |[x, y, z]| {
+            let [s, v] = self.p;
+            [-s * (x + y), -y - s * x * z, s * x * y + v]
+        })
+    }
+}
+
+/// [Yu and Wang](http://paulbourke.net/fractals/yuwang/)'s attractor, a flow integrated in steps of 0.001
+#[derive(Debug, Clone)]
+pub struct YuWangAttractor {
+    p: [f64; 4],
+}
+
+impl Attractor for YuWangAttractor {
+    const NAME: &'static str = "yuwang";
+    const FORMULA: &'static str = "x' = a (y - x)\ny' = b x - c x z\nz' = e^(x y) - d z";
+    const PARAM_NAMES: &'static [&'static str] = &["a", "b", "c", "d"];
+    const DEFAULT_PARAMS: &'static [f64] = &[10.0, 40.0, 2.0, 2.5];
+    const PARAM_RANGE: (f64, f64) = (0.0, 50.0);
+    const START: Point = [0.1, 0.0, 0.0];
+    const PROJECTION: (usize, usize) = (0, 2);
+    const STEP: f64 = 0.5;
+
+    fn from_params(params: &[f64]) -> Self {
+        YuWangAttractor {
+            p: params.try_into().expect("4 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, p: Point) -> Point {
+        rk4(p, 0.001, |[x, y, z]| {
+            let [a, b, c, d] = self.p;
+            [a * (y - x), b * x - c * x * z, (x * y).exp() - d * z]
+        })
     }
 }
 

@@ -71,16 +71,31 @@ with one directly:
 cargo run --release -- --attractor tinkerbell
 ```
 
-The kinds are `clifford`, `dejong`, `kingsdream`, `henon` (2 parameters),
-`tinkerbell` and `sprott` (Sprott's quadratic map, 12 parameters). Each kind
-keeps its saved images and special attractors in its own `cache/<name>/`
-directory.
+There are two families. Maps jump from one point on the plane to the next:
+
+- `clifford`, `dejong`, `kingsdream`, `svensson`, `tinkerbell`
+- `henon` and `lozi` (2 parameters), `duffing`, `ikeda` (1 parameter)
+- `hopalong`, `gumowskimira`, `bedhead` (Sánchez's "Bad Hair Day")
+- `sprott`, Sprott's general quadratic map with 12 parameters
+
+Flows move smoothly through 3D space, and are drawn as a view from one side:
+
+- `lorenz`, `rossler`, `chen`, `aizawa` (6 parameters)
+- `thomas` and `halvorsen` (1 parameter each)
+- `arneodo`, `burkeshaw`, `yuwang`
+
+Each kind keeps its saved images and special attractors in its own
+`cache/<name>/` directory. With a single parameter, the Map window's top left
+plot becomes a slider.
 
 To add a new kind, write a struct holding its parameters in
 `src/attractors.rs`, implement the `Attractor` trait for it (its name,
 parameter names, default parameters, a range for the map, and the formula), and
-add it to the list in `all_attractors!` in `src/lib.rs`. If you don't know a box that contains the
-attractor, leave out `bounds` and it will be estimated from a sample of points.
+add it to the list in `all_attractors!` in `src/lib.rs`. For a flow, `next`
+takes one step with the `rk4` helper, and `PROJECTION` picks which two of x, y
+and z to draw. If you don't know a box that contains the attractor, leave out
+`bounds` and it will be estimated from a sample of points. The tests check that
+every attractor's default parameters are chaotic.
 
 ### Colours
 
