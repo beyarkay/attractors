@@ -52,3 +52,27 @@ fn write_png_a5(bencher: divan::Bencher) {
     bencher.bench_local(|| write_png(&hist, POWER, &path).unwrap());
     let _ = std::fs::remove_file(path);
 }
+
+/// The formula alone on one core, with no histogram writes.
+#[divan::bench]
+fn formula_only_500k(bencher: divan::Bencher) {
+    let c = CliffordAttractor::new(CliffordAttractor::DEFAULT_PARAMS);
+    bencher.bench_local(|| {
+        let (mut x, mut y) = (0.0, 0.0);
+        for _ in 0..500_000 {
+            (x, y) = c.next(divan::black_box(x), y);
+        }
+        (x, y)
+    });
+}
+
+/// Full stepping on one core: small calls stay below the multi-core threshold.
+#[divan::bench]
+fn step_500k_one_core(bencher: divan::Bencher) {
+    let (mut c, mut hist) = warm_histogram(PREVIEW, 0);
+    bencher.bench_local(|| {
+        for _ in 0..10 {
+            c.step(50_000, &mut hist, &View::default());
+        }
+    });
+}
