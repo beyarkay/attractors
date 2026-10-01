@@ -4,6 +4,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use minifb::Key;
 use rand::Rng;
@@ -27,6 +28,8 @@ const MIN_NUM_STEPS: usize = 500_000;
 const MAX_PREVIEW_STEPS: usize = 10_000_000;
 /// Number of parameters the nudge keys and the map act on at once
 pub const PARAM_WINDOW: usize = 4;
+/// How long a notice stays in the window title
+const NOTICE_DURATION: Duration = Duration::from_millis(2500);
 
 /// Where images and `special.txt` for this kind of attractor live
 pub fn output_dir<A: Attractor>(cache_dir: &Path) -> PathBuf {
@@ -118,6 +121,8 @@ pub struct Explorer<A> {
     delta: f64,
     look: Look,
     switch_kind: Option<isize>,
+    /// A short message shown in the title, and when it was set
+    notice: Option<(String, Instant)>,
     commands: Vec<Command<A>>,
 }
 
@@ -146,6 +151,7 @@ impl<A: Attractor> Explorer<A> {
             delta: A::STEP,
             look: Look::default(),
             switch_kind: None,
+            notice: None,
             commands: commands(),
         };
         explorer.restart();
@@ -228,8 +234,12 @@ impl<A: Attractor> Explorer<A> {
         } else {
             ""
         };
+        let notice = match &self.notice {
+            Some((text, at)) if at.elapsed() < NOTICE_DURATION => format!("   |   {text}"),
+            _ => String::new(),
+        };
         format!(
-            "{}   {}   |   {}   |   step {}   |   ? for help{escaped}",
+            "{}   {}   |   {}   |   step {}   |   ? for help{escaped}{notice}",
             A::NAME,
             params.join("   "),
             self.look.palette().name,
@@ -252,15 +262,29 @@ impl<A: Attractor> Explorer<A> {
         help
     }
 
-    /// The formula and current parameters, printed when this kind of attractor is selected
+    /// The formula, printed when this kind of attractor is selected
     pub fn description(&self) -> String {
         format!(
-            "=== {} ({} parameters) ===\n{}\n{}",
+            "=== {} ({} parameters) ===\n{}",
             A::NAME,
             A::PARAM_NAMES.len(),
             A::FORMULA,
-            format_params(A::PARAM_NAMES, self.attractor.params())
         )
+    }
+
+    /// The parameters to 4 decimal places, for printing
+    pub fn short_params(&self) -> String {
+        A::PARAM_NAMES
+            .iter()
+            .zip(self.attractor.params())
+            .map(|(name, value)| format!("{name}={value:.4}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Show `text` in the window title for a couple of seconds
+    fn notify(&mut self, text: impl Into<String>) {
+        self.notice = Some((text.into(), Instant::now()));
     }
 
     fn restart(&mut self) {
@@ -271,7 +295,6 @@ impl<A: Attractor> Explorer<A> {
 
     fn set_attractor(&mut self, attractor: A) {
         self.attractor = attractor;
-        println!("{}", format_params(A::PARAM_NAMES, self.attractor.params()));
         self.sampler.reset();
         self.restart();
     }
@@ -294,23 +317,24 @@ impl<A: Attractor> Explorer<A> {
         self.window_start =
             (self.window_start as isize + by).clamp(0, last_start as isize) as usize;
         let end = (self.window_start + PARAM_WINDOW).min(A::PARAM_NAMES.len());
-        println!(
-            "Keys and map now control {}",
+        self.notify(format!(
+            "keys and map control {}",
             A::PARAM_NAMES[self.window_start..end].join(", ")
-        );
+        ));
     }
 
     fn mark_special(&mut self) {
         let params = self.attractor.params().to_vec();
         let line = format_params(A::PARAM_NAMES, &params);
         if self.specials.contains(&params) {
-            println!("Already marked as special: {line}");
+            self.notify("already marked as special");
             return;
         }
         match append_special::<A>(&self.cache_dir, &line) {
             Ok(()) => {
                 self.specials.push(params);
-                println!("Marked as special: {line}");
+                println!("Marked as special: {}", self.short_params());
+                self.notify("marked as special");
             }
             Err(e) => eprintln!(
                 "Couldn't write to {}: {e}",
@@ -393,13 +417,19 @@ fn commands<A: Attractor>() -> Vec<Command<A>> {
             enabled: true,
             description: "Jump to a random special attractor (Shift: random chaotic parameters)",
             action: |s, shift| {
-                let params = if shift || s.specials.is_empty() {
-                    random_chaotic_params::<A>()
+                let (params, how) = if shift || s.specials.is_empty() {
+                    match random_chaotic_params::<A>() {
+                        Some((params, tries)) => (params, format!("random, {tries} tries to find chaos")),
+                        None => (A::DEFAULT_PARAMS.to_vec(), "no chaotic parameters found, defaults".to_string()),
+                    }
                 } else {
-                    s.specials[rand::thread_rng().gen_range(0..s.specials.len())].clone()
+                    let i = rand::thread_rng().gen_range(0..s.specials.len());
+                    (s.specials[i].clone(), format!("special {} of {}", i + 1, s.specials.len()))
                 };
                 s.view = View::default();
                 s.set_attractor(A::from_params(&params));
+                println!("Jumped to {} ({how})", s.short_params());
+                s.notify(how);
             },
         },
         Command {
@@ -411,7 +441,10 @@ fn commands<A: Attractor>() -> Vec<Command<A>> {
                 let size = if shift { A0_600_DPI } else { A3_600_DPI };
                 let dir = output_dir::<A>(&s.cache_dir);
                 match save_png(&s.attractor, &s.sampler, size, &s.view, &s.look, &dir) {
-                    Ok(path) => println!("Saved {}", path.display()),
+                    Ok(path) => {
+                        println!("Saved {}", path.display());
+                        s.notify("saved");
+                    }
                     Err(e) => eprintln!("Failed to save: {e}"),
                 }
             },
@@ -430,7 +463,7 @@ fn commands<A: Attractor>() -> Vec<Command<A>> {
             description: "Blend attractors into each other less (Shift: more, helps with photosensitive epilepsy)",
             action: |s, shift| {
                 s.noodle_factor = (s.noodle_factor + sign(shift) * 0.05).clamp(0.05, 1.0);
-                println!("noodle_factor: {:.2}", s.noodle_factor);
+                s.notify(format!("blend {:.2}", s.noodle_factor));
             },
         },
         Command {
@@ -440,7 +473,6 @@ fn commands<A: Attractor>() -> Vec<Command<A>> {
             description: "Multiply the step size by 10 (Shift: divide by 10)",
             action: |s, shift| {
                 s.delta *= 10.0_f64.powf(sign(shift));
-                println!("step size: {}", s.delta);
             },
         },
         Command {
@@ -450,7 +482,7 @@ fn commands<A: Attractor>() -> Vec<Command<A>> {
             description: "Increase contrast, so faint areas get darker (Shift: decrease)",
             action: |s, shift| {
                 s.look.contrast = (s.look.contrast * 1.05_f64.powf(sign(shift))).clamp(0.2, 5.0);
-                println!("contrast: {:.2}", s.look.contrast);
+                s.notify(format!("contrast {:.2}", s.look.contrast));
             },
         },
         Command {
@@ -461,7 +493,6 @@ fn commands<A: Attractor>() -> Vec<Command<A>> {
             action: |s, shift| {
                 let n = PALETTES.len();
                 s.look.palette = (s.look.palette + if shift { n - 1 } else { 1 }) % n;
-                println!("palette: {}", s.look.palette().name);
             },
         },
         Command {
@@ -471,7 +502,7 @@ fn commands<A: Attractor>() -> Vec<Command<A>> {
             description: "Zoom in (Shift: zoom out)",
             action: |s, shift| {
                 let zoom = (s.view.zoom + sign(shift) * s.delta * 2.0).clamp(0.01, 100.0);
-                println!("Zoomed in at {zoom:.4}");
+                s.notify(format!("zoom {zoom:.2}"));
                 s.set_view(View { zoom, ..s.view });
             },
         },
@@ -483,7 +514,7 @@ fn commands<A: Attractor>() -> Vec<Command<A>> {
             action: |s, shift| {
                 let hpan = (s.view.hpan + sign(shift) * s.delta * 2.0 / s.view.zoom)
                     .clamp(-1000.0, 1000.0);
-                println!("Horizontal pan is {hpan:.4}");
+                s.notify(format!("horizontal pan {hpan:.3}"));
                 s.set_view(View { hpan, ..s.view });
             },
         },
@@ -495,7 +526,7 @@ fn commands<A: Attractor>() -> Vec<Command<A>> {
             action: |s, shift| {
                 let vpan = (s.view.vpan + sign(shift) * s.delta * 2.0 / s.view.zoom)
                     .clamp(-1000.0, 1000.0);
-                println!("Vertical pan is {vpan:.4}");
+                s.notify(format!("vertical pan {vpan:.3}"));
                 s.set_view(View { vpan, ..s.view });
             },
         },
@@ -507,7 +538,7 @@ fn commands<A: Attractor>() -> Vec<Command<A>> {
             action: |s, _| {
                 let steps = ((1_000_000.0 * s.delta) as usize).clamp(1_000, 100_000_000);
                 s.sampler.step(&s.attractor, steps, &mut s.hist, &s.view);
-                println!("Currently at {} steps", s.hist.steps);
+                s.notify(format!("{} million steps", s.hist.steps / 1_000_000));
             },
         },
         Command {
@@ -516,15 +547,16 @@ fn commands<A: Attractor>() -> Vec<Command<A>> {
             enabled: true,
             description: "Reset zoom and pan",
             action: |s, _| {
-                println!("Reset zoom and pan");
+                s.notify("zoom and pan reset");
                 s.set_view(View::default());
             },
         },
     ]
 }
 
-/// Random parameters in `A::PARAM_RANGE`, retried until the attractor is chaotic
-fn random_chaotic_params<A: Attractor>() -> Vec<f64> {
+/// Random parameters in `A::PARAM_RANGE`, retried until the attractor is chaotic, and how many
+/// tries that took
+fn random_chaotic_params<A: Attractor>() -> Option<(Vec<f64>, usize)> {
     let mut rng = rand::thread_rng();
     let (lo, hi) = A::PARAM_RANGE;
     for tries in 1..=10_000 {
@@ -532,12 +564,10 @@ fn random_chaotic_params<A: Attractor>() -> Vec<f64> {
             .map(|_| rng.gen_range(lo..hi))
             .collect();
         if lyapunov_exponent(&A::from_params(&params), 2_000) > 0.005 {
-            println!("Found chaotic parameters after {tries} tries");
-            return params;
+            return Some((params, tries));
         }
     }
-    println!("No chaotic parameters found, using the defaults");
-    A::DEFAULT_PARAMS.to_vec()
+    None
 }
 
 fn load_specials<A: Attractor>(cache_dir: &Path) -> Vec<Vec<f64>> {
@@ -961,6 +991,17 @@ mod tests {
         assert_eq!(map_pixel(&b, 270 + 12, 150), MAP_CROSSHAIRS);
         press(&mut e, &mut b, Input::click_map(150.0, 40.0));
         assert_params(e.attractor().params(), &[0.5]);
+    }
+
+    #[test]
+    fn notices_show_in_the_title() {
+        let (mut e, mut b) = explorer::<CliffordAttractor>("notices");
+        assert!(!e.title().contains("contrast"));
+        press(&mut e, &mut b, Input::keys(&[Key::D]));
+        assert!(e.title().contains("contrast 1.05"), "{}", e.title());
+        press(&mut e, &mut b, Input::keys(&[Key::M]));
+        assert!(e.title().contains("marked as special"), "{}", e.title());
+        assert_eq!(e.short_params(), "a=-1.4000 b=1.6000 c=1.0000 d=0.7000");
     }
 
     #[test]

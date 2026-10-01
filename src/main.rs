@@ -146,6 +146,8 @@ struct Windows {
     main: Window,
     map: Window,
     buffers: Buffers,
+    /// The list of keys is printed once, not every time the kind of attractor changes
+    shown_help: bool,
 }
 
 impl Windows {
@@ -170,6 +172,7 @@ impl Windows {
             main,
             map,
             buffers: Buffers::default(),
+            shown_help: false,
         }
     }
 
@@ -189,7 +192,10 @@ impl Windows {
 /// to another kind (returns +1 or -1).
 fn run_interactively<A: Attractor>(windows: &mut Windows) -> Option<isize> {
     let mut explorer = Explorer::<A>::new(Path::new(CACHE_DIR));
-    println!("{}", explorer.help());
+    if !windows.shown_help {
+        println!("{}", explorer.help());
+        windows.shown_help = true;
+    }
     println!("{}", explorer.description());
     let mut title = String::new();
     while windows.main.is_open() && !windows.main.is_key_down(Key::Escape) {
