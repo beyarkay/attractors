@@ -1,4 +1,4 @@
-use attractors::render::{colour_u32, write_png};
+use attractors::render::{blend_and_colour, write_png};
 use attractors::{Attractor, CliffordAttractor, Histogram, View};
 
 const PREVIEW: (usize, usize) = (636, 900);
@@ -27,16 +27,9 @@ fn step_500k(bencher: divan::Bencher) {
 #[divan::bench]
 fn colour_preview_frame(bencher: divan::Bencher) {
     let (_, hist) = warm_histogram(PREVIEW, 10_000_000);
-    let mut densities = vec![0.0; PREVIEW.0 * PREVIEW.1];
     let mut prev = vec![0.0; PREVIEW.0 * PREVIEW.1];
     let mut buffer = vec![0u32; PREVIEW.0 * PREVIEW.1];
-    bencher.bench_local(|| {
-        hist.normalise_into(&mut densities);
-        for ((pixel, p), &d) in buffer.iter_mut().zip(&mut prev).zip(&densities) {
-            *p = 0.9 * d + 0.1 * *p;
-            *pixel = colour_u32(*p, POWER);
-        }
-    });
+    bencher.bench_local(|| blend_and_colour(&hist, &mut prev, 0.9, POWER, &mut buffer));
 }
 
 /// What a parameter change costs before the first new frame can be drawn.

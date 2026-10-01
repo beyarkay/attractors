@@ -4,7 +4,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use attractors::render::{colour_u32, save_png};
+use attractors::render::{blend_and_colour, save_png};
 use attractors::*;
 use minifb::{CursorStyle, Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 use rand::Rng;
@@ -342,7 +342,6 @@ fn run_interactively<A: Attractor + Clone + Display>() {
 
     state.restart();
     let mut buffer = vec![0u32; WIDTH * HEIGHT];
-    let mut densities = vec![0f64; WIDTH * HEIGHT];
     let mut prev_densities = vec![0f64; WIDTH * HEIGHT];
     let mut map_buf = vec![0u32; MAP_WIDTH * MAP_HEIGHT];
     while window.is_open() && !window.is_key_down(Key::Escape) {
@@ -351,13 +350,13 @@ fn run_interactively<A: Attractor + Clone + Display>() {
                 .attractor
                 .step(MIN_NUM_STEPS, &mut state.hist, &state.view);
         }
-        state.hist.normalise_into(&mut densities);
-        let nf = state.noodle_factor;
-        for ((pixel, prev), &density) in buffer.iter_mut().zip(&mut prev_densities).zip(&densities)
-        {
-            *prev = nf * density + (1.0 - nf) * *prev;
-            *pixel = colour_u32(*prev, state.power);
-        }
+        blend_and_colour(
+            &state.hist,
+            &mut prev_densities,
+            state.noodle_factor,
+            state.power,
+            &mut buffer,
+        );
 
         if map_window.is_open() {
             let new_params = update_map(

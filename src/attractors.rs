@@ -14,6 +14,8 @@
 /// - [Burke-Shaw Attractors](http://paulbourke.net/fractals/burkeshaw/)
 /// - [Yu-Wang Attractors](http://paulbourke.net/fractals/yuwang/)
 use std::fmt::{self, Display};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::thread;
 
 /// Which part of the attractor's bounding box is drawn, and how much empty border surrounds it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -64,23 +66,9 @@ impl Histogram {
         self.max = 0;
         self.steps = 0;
     }
-
-    /// Fill `out` with each pixel's count divided by the maximum count, so values are in [0, 1].
-    /// An empty histogram gives all zeros.
-    pub fn normalise_into(&self, out: &mut [f64]) {
-        assert_eq!(out.len(), self.counts.len());
-        if self.max == 0 {
-            out.fill(0.0);
-            return;
-        }
-        let inv_max = 1.0 / self.max as f64;
-        for (o, &c) in out.iter_mut().zip(&self.counts) {
-            *o = c as f64 * inv_max;
-        }
-    }
 }
 
-pub trait Attractor {
+pub trait Attractor: Sync {
     /// A name for the attractor matching [a-zA-Z]+
     const NAME: &'static str;
     /// Parameters that give a nice-looking attractor
@@ -103,40 +91,114 @@ pub trait Attractor {
     /// One application of the attractor's formula.
     fn next(&self, x: f64, y: f64) -> (f64, f64);
 
-    /// Take `num_steps` steps from the current position, counting each point in `hist`.
-    fn step(&mut self, num_steps: usize, hist: &mut Histogram, view: &View) {
-        let (xmin, xmax, ymin, ymax) = self.bounds();
+    /// Take `num_steps` steps, counting each point in `hist`.
+    ///
+    /// Large step counts are split across all cores. Each extra thread follows its own
+    /// trajectory, starting from a slightly nudged copy of the current position.
+    fn step(&mut self, num_steps: usize, hist: &mut Histogram, view: &View)
+    where
+        Self: Sized,
+    {
+        let mapping = PixelMapping::new(self.bounds(), view, hist.width, hist.height);
+        let threads = if num_steps < PARALLEL_MIN_STEPS {
+            1
+        } else {
+            num_threads()
+        };
+        // SAFETY: AtomicU32 has the same in-memory representation as u32, and `hist.counts` is
+        // exclusively borrowed for as long as `counts` is used.
+        let counts: &[AtomicU32] =
+            unsafe { &*(hist.counts.as_mut_slice() as *mut [u32] as *const [AtomicU32]) };
+        let start = self.position();
+        let this = &*self;
+        let walk = |thread_idx: usize| {
+            let n = num_steps / threads + usize::from(thread_idx < num_steps % threads);
+            let (mut x, mut y) = (start.0 + thread_idx as f64 * 1e-3, start.1);
+            if thread_idx > 0 {
+                for _ in 0..WARMUP_STEPS {
+                    (x, y) = this.next(x, y);
+                }
+            }
+            let mut max = 0;
+            for _ in 0..n {
+                (x, y) = this.next(x, y);
+                if let Some(idx) = mapping.index(x, y) {
+                    max = max.max(counts[idx].fetch_add(1, Ordering::Relaxed) + 1);
+                }
+            }
+            ((x, y), max)
+        };
+        let results: Vec<((f64, f64), u32)> = if threads == 1 {
+            vec![walk(0)]
+        } else {
+            thread::scope(|s| {
+                let handles: Vec<_> = (0..threads).map(|i| s.spawn(move || walk(i))).collect();
+                handles.into_iter().map(|h| h.join().unwrap()).collect()
+            })
+        };
+        // Counts only increase, so the largest value any increment produced is the new max
+        hist.max = results.iter().map(|r| r.1).fold(hist.max, u32::max);
+        hist.steps += num_steps;
+        let (x, y) = results[0].0;
+        self.set_position(x, y);
+    }
+}
+
+/// Fewer steps than this run on one thread, where spawning threads would cost more than it saves
+const PARALLEL_MIN_STEPS: usize = 100_000;
+/// Uncounted steps for each extra thread, so its trajectory has diverged from thread 0's
+const WARMUP_STEPS: usize = 100;
+
+pub fn num_threads() -> usize {
+    thread::available_parallelism().map_or(1, |n| n.get())
+}
+
+/// Maps attractor coordinates to histogram indices for a given view.
+#[derive(Clone, Copy)]
+struct PixelMapping {
+    zoomed_xmin: f64,
+    zoomed_ymin: f64,
+    xrange: f64,
+    yrange: f64,
+    x_scale: f64,
+    y_scale: f64,
+    x_offset: f64,
+    y_offset: f64,
+    width: usize,
+    height: usize,
+}
+
+impl PixelMapping {
+    fn new(bounds: (f64, f64, f64, f64), view: &View, width: usize, height: usize) -> Self {
+        let (xmin, xmax, ymin, ymax) = bounds;
         let xrange = (xmax - xmin) / view.zoom;
         let yrange = (ymax - ymin) / view.zoom;
-        let zoomed_xmin = xmin + (xmax - xmin) * 0.5 + view.hpan - xrange * 0.5;
-        let zoomed_ymin = ymin + (ymax - ymin) * 0.5 + view.vpan - yrange * 0.5;
-
-        let (w, h) = (hist.width, hist.height);
         let non_border_frac = 1.0 - 2.0 * view.border;
-        let x_scale = w as f64 * non_border_frac;
-        let y_scale = h as f64 * non_border_frac;
-        let x_offset = w as f64 * view.border;
-        let y_offset = h as f64 * view.border;
-
-        let (mut x, mut y) = self.position();
-        let mut max = hist.max;
-        for _ in 0..num_steps {
-            (x, y) = self.next(x, y);
-            let normed_x = (x - zoomed_xmin) / xrange;
-            let normed_y = (y - zoomed_ymin) / yrange;
-            // Written so that NaN is also skipped
-            if !((0.0..=1.0).contains(&normed_x) && (0.0..=1.0).contains(&normed_y)) {
-                continue;
-            }
-            let px = ((normed_x * x_scale + x_offset) as usize).min(w - 1);
-            let py = ((normed_y * y_scale + y_offset) as usize).min(h - 1);
-            let count = &mut hist.counts[px + py * w];
-            *count += 1;
-            max = max.max(*count);
+        PixelMapping {
+            zoomed_xmin: xmin + (xmax - xmin) * 0.5 + view.hpan - xrange * 0.5,
+            zoomed_ymin: ymin + (ymax - ymin) * 0.5 + view.vpan - yrange * 0.5,
+            xrange,
+            yrange,
+            x_scale: width as f64 * non_border_frac,
+            y_scale: height as f64 * non_border_frac,
+            x_offset: width as f64 * view.border,
+            y_offset: height as f64 * view.border,
+            width,
+            height,
         }
-        hist.max = max;
-        hist.steps += num_steps;
-        self.set_position(x, y);
+    }
+
+    #[inline(always)]
+    fn index(&self, x: f64, y: f64) -> Option<usize> {
+        let normed_x = (x - self.zoomed_xmin) / self.xrange;
+        let normed_y = (y - self.zoomed_ymin) / self.yrange;
+        // Written so that NaN is also skipped
+        if !((0.0..=1.0).contains(&normed_x) && (0.0..=1.0).contains(&normed_y)) {
+            return None;
+        }
+        let px = ((normed_x * self.x_scale + self.x_offset) as usize).min(self.width - 1);
+        let py = ((normed_y * self.y_scale + self.y_offset) as usize).min(self.height - 1);
+        Some(px + py * self.width)
     }
 }
 
@@ -365,11 +427,18 @@ mod tests {
     }
 
     #[test]
-    fn empty_histogram_normalises_to_zero() {
-        let hist = Histogram::new(4, 4);
-        let mut out = vec![f64::NAN; 16];
-        hist.normalise_into(&mut out);
-        assert!(out.iter().all(|&v| v == 0.0));
+    fn parallel_step_counts_every_point_and_tracks_max() {
+        let mut c = CliffordAttractor::new(PARAMS);
+        let mut hist = Histogram::new(64, 64);
+        let n = PARALLEL_MIN_STEPS * 3 + 7;
+        c.step(n, &mut hist, &View::default());
+        c.step(n, &mut hist, &View::default());
+        assert_eq!(hist.steps, 2 * n);
+        assert_eq!(
+            hist.counts.iter().map(|&n| n as usize).sum::<usize>(),
+            2 * n
+        );
+        assert_eq!(Some(&hist.max), hist.counts.iter().max());
     }
 
     #[test]
