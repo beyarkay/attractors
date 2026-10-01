@@ -1,13 +1,13 @@
-#![feature(test)]
 extern crate minifb;
-extern crate test;
 mod attractors;
 use std::fs::File;
-use std::thread::{sleep, sleep_ms};
+use std::thread::sleep;
 use std::time::Duration;
+use std::{env, fs};
 use std::{fmt::Display, fs::OpenOptions, io::BufWriter, path::Path};
 
 use crate::attractors::*;
+use colorous::Gradient;
 use image::{ImageBuffer, RgbImage};
 use minifb::{clamp, CursorStyle, Key, MouseButton, MouseMode, Window, WindowOptions};
 use rand::Rng;
@@ -24,27 +24,105 @@ enum IsoPaper {
 
 const A0_600_DPI: (usize, usize) = (19866, 28087);
 const A1_600_DPI: (usize, usize) = (14043, 19866);
-const _A2_600_DPI: (usize, usize) = (9933, 14043);
+const A2_600_DPI: (usize, usize) = (9933, 14043);
 const A3_600_DPI: (usize, usize) = (7016, 9933);
-const _A4_600_DPI: (usize, usize) = (4960, 7016);
+const A4_600_DPI: (usize, usize) = (4960, 7016);
+const A5_600_DPI: (usize, usize) = (3506, 4960);
 const ISO_PAPER_FORMAT: (usize, usize) = (636, 900);
 
-const REELS_WIDTH: usize = 506;
-const REELS_HEIGHT: usize = 900;
+const _REELS_WIDTH: usize = 506;
+const _REELS_HEIGHT: usize = 900;
 const MAP_WIDTH: usize = 600;
 const MAP_HEIGHT: usize = 600;
-const DIAG_WIDTH: usize = 300;
-const DIAG_HEIGHT: usize = 100;
-const SCREEN_WIDTH: usize = 900;
-const SCREEN_HEIGHT: usize = 900;
+const _DIAG_WIDTH: usize = 300;
+const _DIAG_HEIGHT: usize = 100;
+const _SCREEN_WIDTH: usize = 900;
+const _SCREEN_HEIGHT: usize = 900;
 const WIDTH: usize = ISO_PAPER_FORMAT.0;
 const HEIGHT: usize = ISO_PAPER_FORMAT.1;
-const FIRST_DRAW_SIZE: usize = 9_000_000;
-const MIN_NUM_STEPS: usize = 200_000;
+const _FIRST_DRAW_SIZE: usize = 9_000_000;
+const MIN_NUM_STEPS: usize = 500_000;
+
+const GRADIENT: Gradient = colorous::TURBO;
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    println!("Arguments: {:?}", args);
+    if args.len() >= 2 {
+        run_headless(&args);
+    } else {
+        run_interactively(&args);
+    }
+}
+
+fn run_headless(args: &Vec<String>) {
+    // These parameters have been manually tuned
+    let mut lch = LchParams {
+        hue_slope: 0.15, // values over 0.5 give a bit of a blowout effect
+        // red-orange: 0.06
+        // orange: 0.09
+        // light blue: 0.51
+        hue_intercept: 0.51,
+        chroma_slope: 0.2,
+        chroma_intercept: 1.5,
+        light_slope: 1.6,
+        light_intercept: 0.0, // no touchie
+    };
+    match args.len() {
+        2 => {
+            let power = 0.15;
+            let hpan = 0.0;
+            let vpan = 0.0;
+            let zoom = 1.0;
+            // read from file
+            let filename = &args[1];
+            let contents =
+                fs::read_to_string(filename).expect("Something went wrong reading the file");
+            let iterator = contents.lines().filter(|l| !l.starts_with("#"));
+            println!(
+                "About to create {} attractors and save them",
+                iterator.clone().count()
+            );
+
+            for line in iterator {
+                print!("Attempting to create attractor: `{line}`");
+                let iter = line.split(",").collect::<Vec<_>>();
+                let a = &iter[0][2..].parse::<f64>();
+                let b = &iter[1][2..].parse::<f64>();
+                let c = &iter[2][2..].parse::<f64>();
+                let d = &iter[3][2..].parse::<f64>();
+                let mut clifford;
+                if a.is_ok() && b.is_ok() && c.is_ok() && d.is_ok() {
+                    clifford = CliffordAttractor::new(vec![
+                        *(*a).as_ref().unwrap(),
+                        *(*b).as_ref().unwrap(),
+                        *(*c).as_ref().unwrap(),
+                        *(*d).as_ref().unwrap(),
+                    ]);
+                    clifford.step(40_000_000);
+                    // hue_intercept_idx += 1;
+                    // let val = hue_intercept_idx as f64 * 1.618033988749895; // Multiply by phi, the most irrational number
+                    // lch.hue_intercept = val.fract();
+                    save_to_disc(&mut clifford, A0_600_DPI, &mut lch, power, hpan, vpan, zoom);
+                    println!(" => done");
+                } else {
+                    println!(" => error parsing");
+                }
+            }
+        }
+        _ => {
+            println!("Usage: attractors [<file with attractor definitions>] [<attractor name> <parameter list...> <number of iterations>]");
+        }
+    }
+}
+fn run_interactively(_args: &Vec<String>) {
     // Create parameters for the clifford attractor
-    let mut delta = 0.01;
+    let mut delta = 0.1;
+    let mut power = 0.15;
+    let mut hpan = 0.0;
+    let mut vpan = 0.0;
+    let mut zoom = 1.0;
+
     let mut specials = get_specials();
     let mut clifford: CliffordAttractor = CliffordAttractor::new(vec![-1.4, 1.6, 1.0, 0.7]);
     if let Some(ref specials) = specials {
@@ -82,7 +160,7 @@ fn main() {
     let commands = vec![
         Command { // j -> a--
             keys: vec![Key::J],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta| {
+            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
                 clifford.set_params(vec![Some(clifford.a - *delta), None, None, None]);
                 clifford.reset();
                 clifford.step(MIN_NUM_STEPS);
@@ -92,7 +170,7 @@ fn main() {
         },
         Command { // k -> b--
             keys: vec![Key::K],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta| {
+            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
                 clifford.set_params(vec![None, Some(clifford.b - *delta), None, None]);
                 clifford.reset();
                 clifford.step(MIN_NUM_STEPS);
@@ -102,7 +180,7 @@ fn main() {
         },
         Command { // l -> c--
             keys: vec![Key::L],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta| {
+            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
                 clifford.set_params(vec![None, None, Some(clifford.c - *delta), None]);
                 clifford.reset();
                 clifford.step(MIN_NUM_STEPS);
@@ -112,7 +190,7 @@ fn main() {
         },
         Command { // ; -> d--
             keys: vec![Key::Semicolon],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta| {
+            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
                 clifford.set_params(vec![None, None, None, Some(clifford.d - *delta)]);
                 clifford.reset();
                 clifford.step(MIN_NUM_STEPS);
@@ -122,7 +200,7 @@ fn main() {
         },
         Command { // u -> a++
             keys: vec![Key::U],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta| {
+            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
                 clifford.set_params(vec![Some(clifford.a + *delta), None, None, None]);
                 clifford.reset();
                 clifford.step(MIN_NUM_STEPS);
@@ -132,7 +210,7 @@ fn main() {
         },
         Command { // i -> b++
             keys: vec![Key::I],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta| {
+            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
                 clifford.set_params(vec![None, Some(clifford.b + *delta), None, None]);
                 clifford.reset();
                 clifford.step(MIN_NUM_STEPS);
@@ -142,7 +220,7 @@ fn main() {
         },
         Command { // o -> c++
             keys: vec![Key::O],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta| {
+            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
                 clifford.set_params(vec![None, None, Some(clifford.c + *delta), None]);
                 clifford.reset();
                 clifford.step(MIN_NUM_STEPS);
@@ -152,7 +230,7 @@ fn main() {
         },
         Command { // p -> d++
             keys: vec![Key::P],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta| {
+            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
                 clifford.set_params(vec![None, None, None, Some(clifford.d + *delta)]);
                 clifford.reset();
                 clifford.step(MIN_NUM_STEPS);
@@ -162,7 +240,7 @@ fn main() {
         },
         Command { // Hue Intercept
             keys: vec![Key::E],
-            action: Box::new(|clifford, _buffer, keys, lch, _specials, _decay_factor, _delta| {
+            action: Box::new(|clifford, _buffer, keys, lch, _specials, _decay_factor, _delta, _power, hpan, vpan, zoom| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 lch.hue_intercept += 0.01 * sign;
                 println!("{:#}", lch);
@@ -173,7 +251,7 @@ fn main() {
         },
         Command { // Reset and randomise
             keys: vec![Key::R],
-            action: Box::new(|clifford, buffer, keys, _lch, specials, _decay_factor, _delta| {
+            action: Box::new(|clifford, buffer, keys, _lch, specials, _decay_factor, _delta, _power, hpan, vpan, zoom| {
                 for item in buffer.iter_mut() { *item = 0; }
                 // If r => Choose random from specials
                 if !keys.contains(&Key::LeftShift) {
@@ -199,45 +277,25 @@ fn main() {
                 };
                 clifford.reset();
                 clifford.step(MIN_NUM_STEPS);
+                *zoom = 1.0;
+                *hpan = 0.0;
+                *vpan = 0.0;
             }),
             description: "Randomize the Clifford parameters and re-run the attractor with these new parameters".to_string(),
             enabled: true,
         },
         Command { // Print to disc
             keys: vec![Key::S],
-            action: Box::new(|clifford, _buffer, keys, lch, _specials, _decay_factor, _delta| {
-                let filename = format!("cache/clifford/a={:.6}_b={:.6}_c={:.6}_d={:.6}_iters={}.png", clifford.a, clifford.b, clifford.c, clifford.d, clifford.history.len());
-                print!("Saving data to {}", filename);
+            action: Box::new(|clifford, _buffer, keys, lch, _specials, _decay_factor, _delta, power, hpan, vpan, zoom| {
                 let size = if keys.contains(&Key::LeftShift) { A0_600_DPI } else { A3_600_DPI };
-                let mut image: RgbImage = ImageBuffer::new(size.0.try_into().unwrap(), size.1.try_into().unwrap());
-                while clifford.history.len() < 40_000_000 {
-                    print!(".");
-                    clifford.step(5_000_000);
-                }
-                let densities = clifford.get_densities_with_border(size.0 as usize, size.1 as usize, 0.05);
-                for (i, val) in densities.iter().enumerate() {
-                    let packed = hsla_to_u32(
-                        val * lch.hue_slope + lch.hue_intercept,
-                        val * lch.chroma_slope + lch.chroma_intercept,
-                        // The lightness is inversely proportional to the size of of the grid, so
-                        // adjust the lightness power accordingly
-                        val.powf(0.1) * lch.light_slope + lch.light_intercept,
-                        0.0,
-                    );
-                    let x = i % size.0 as usize;
-                    let y = i / size.0 as usize;
-                    let (_a, r, g, b) = u32_to_argb(packed);
-                    image.put_pixel(x as u32, y as u32, image::Rgb([r, g, b]));
-                }
-                image.save(filename).unwrap();
-                println!("done");
+                save_to_disc(clifford, size, lch, *power, *hpan, *vpan, *zoom);
             }),
             description: "Save the attractor in high resolution to disc as png".to_string(),
             enabled: true,
         },
         Command { // Change from black bg to white bg
             keys: vec![Key::B],
-            action: Box::new(|clifford, _buffer, _keys, lch, _specials, _decay_factor, _delta| {
+            action: Box::new(|clifford, _buffer, _keys, lch, _specials, _decay_factor, _delta, _power, hpan, vpan, zoom| {
                 if lch.light_intercept == 1.0 {
                     // Dark background
                     lch.light_intercept = 0.0;
@@ -259,7 +317,7 @@ fn main() {
         },
         Command { // Mark the location as 'special'
             keys: vec![Key::M],
-            action: Box::new(|clifford, _buffer, _keys, _lch, specials, _decay_factor, _delta| {
+            action: Box::new(|clifford, _buffer, _keys, _lch, specials, _decay_factor, _delta, _power, hpan, vpan, zoom| {
                 let filename = "cache/clifford/special.txt";
                 if let Some(specials) = specials {
                     specials.push(vec![clifford.a, clifford.b, clifford.c, clifford.d]);
@@ -300,7 +358,7 @@ fn main() {
         },
         Command { // Change how quickly images blend together (helps with image flickering)
             keys: vec![Key::N],
-            action: Box::new(|_clifford, _buffer, keys, _lch, _specials, noodle_factor, _delta| {
+            action: Box::new(|_clifford, _buffer, keys, _lch, _specials, noodle_factor, _delta, _power, hpan, vpan, zoom| {
                 let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
                 *noodle_factor = f64::min(1.0, f64::max(0.05, *noodle_factor + sign * 0.05));
                 println!("noodle_factor: {}", noodle_factor);
@@ -310,13 +368,77 @@ fn main() {
         },
         Command { // Change the amount by which to step the parameters
             keys: vec![Key::T],
-            action: Box::new(|_clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta| {
+            action: Box::new(|_clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, _power, hpan, vpan, zoom| {
                 let sign = if keys.contains(&Key::LeftShift) { -1 } else { 1 };
                 *delta = *delta * 10.0_f64.powi(sign); // Either multiply or divide by 10
                 println!("delta: {delta}");
                 sleep(Duration::from_millis(10));
             }),
             description: "Change how quickly the parameter values are changed".to_string(),
+            enabled: true,
+        },
+        Command { // Change the power to which the values are raised
+            keys: vec![Key::D],
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, power, hpan, vpan, zoom| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                *power = f64::min(1.0, f64::max(0.0, *power + sign * *delta));
+                println!("power: {power}");
+                clifford.reset();
+                clifford.step(MIN_NUM_STEPS);
+                sleep(Duration::from_millis(10));
+            }),
+            description: "Change how quickly a value goes from black to full colour".to_string(),
+            enabled: true,
+        },
+        Command { // Change the zoom level
+            keys: vec![Key::Z],
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, power, hpan, vpan, zoom| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                *zoom = (*zoom + sign * (*delta) * 2.0).clamp(0.01, 100.0);
+                println!("Zoomed in at {zoom:.4}");
+
+            }),
+            description: "Change the zoom level".to_string(),
+            enabled: true,
+        },
+        Command { // Change the horizontal pan level
+            keys: vec![Key::H],
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, power, hpan, vpan, zoom| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                *hpan = (*hpan + sign * (*delta) * 2.0 / *zoom).clamp(-1000.0, 1000.0);
+                println!("Horizontal pan is {hpan:.4}");
+            }),
+            description: "Change the horizontal pan level".to_string(),
+            enabled: false,
+        },
+        Command { // Change the vertical pan level
+            keys: vec![Key::V],
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, power, hpan, vpan, zoom| {
+                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
+                *vpan = (*vpan + (sign * *delta * 2.0) / *zoom).clamp(-1000.0, 1000.0);
+                println!("Vertical pan is {vpan:.4}");
+            }),
+            description: "Change the vertical pan level".to_string(),
+            enabled: false,
+        },
+        Command {
+            keys: vec![Key::Y],
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, power, hpan, vpan, zoom| {
+                clifford.step(((1_000_000.0 * *delta) as usize).clamp(1_000, 100_000_000));
+                println!("Currently at {} steps", clifford.history.len());
+            }),
+            description: "Run more simulation steps".to_string(),
+            enabled: true,
+        },
+        Command { // Change the zoom level
+            keys: vec![Key::X],
+            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, power, hpan, vpan, zoom| {
+                println!("Reset zoom and pan");
+                *zoom = 1.0;
+                *hpan = 0.0;
+                *vpan = 0.0;
+            }),
+            description: "Reset zoom and reset pan".to_string(),
             enabled: true,
         },
         ];
@@ -368,20 +490,28 @@ fn main() {
     while window.is_open() && !window.is_key_down(Key::Escape) {
         // Then use those generated points to draw onto the buffer in
         // the appropriate spaces
-        if clifford.history.len() < 20_000_000 {
+        if clifford.history.len() < 10_000_000 {
             clifford.step(MIN_NUM_STEPS);
+            if clifford.history.len() % 10_000 <= 1000 {
+                print!("Stepping ({})...", clifford.history.len());
+            }
         }
-        densities = clifford.get_densities_with_border(WIDTH, HEIGHT, 0.05);
+        densities = clifford.get_densities_with_border(WIDTH, HEIGHT, 0.05, hpan, vpan, zoom);
         let avg_density = densities.iter().sum::<f64>() / densities.len() as f64;
         for (i, item) in buffer.iter_mut().enumerate() {
             prev_densities[i] =
                 noodle_factor * densities[i] + (1.0 - noodle_factor) * prev_densities[i];
-            *item = hsla_to_u32(
-                (prev_densities[i]) * lch.hue_slope + lch.hue_intercept,
-                (prev_densities[i]) * lch.chroma_slope + lch.chroma_intercept,
-                (prev_densities[i]).powf(0.3) * lch.light_slope + lch.light_intercept,
-                0.0,
-            );
+
+            let col = GRADIENT.eval_continuous(prev_densities[i]);
+
+            *item = argb_to_u32(0, col.r, col.g, col.b);
+
+            // hsla_to_u32(
+            //     (prev_densities[i]) * lch.hue_slope + lch.hue_intercept,
+            //     (prev_densities[i]) * lch.chroma_slope + lch.chroma_intercept,
+            //     (prev_densities[i]).powf(power) * lch.light_slope + lch.light_intercept,
+            //     0.0,
+            // );
         }
         if map_window.is_open() {
             let mouse_pos = map_window.get_mouse_pos(MouseMode::Discard);
@@ -415,6 +545,10 @@ fn main() {
                     &mut specials,
                     &mut noodle_factor,
                     &mut delta,
+                    &mut power,
+                    &mut hpan,
+                    &mut vpan,
+                    &mut zoom,
                 );
             }
         }
@@ -425,6 +559,58 @@ fn main() {
         //     diagnostics.update_with_buffer(&diag_buf, DIAG_WIDTH, DIAG_HEIGHT).unwrap();
         // }
     }
+}
+
+fn save_to_disc(
+    clifford: &mut CliffordAttractor,
+    size: (usize, usize),
+    lch: &mut LchParams,
+    power: f64,
+    hpan: f64,
+    vpan: f64,
+    zoom: f64,
+) {
+    println!("Saving with power {power}");
+    let filename = format!(
+        "cache/clifford/a={:.6},b={:.6},c={:.6},d={:.6},iters={}.png",
+        clifford.a,
+        clifford.b,
+        clifford.c,
+        clifford.d,
+        clifford.history.len()
+    );
+    let mut image: RgbImage =
+        ImageBuffer::new(size.0.try_into().unwrap(), size.1.try_into().unwrap());
+    while clifford.history.len() < 40_000_000 {
+        print!(".");
+        clifford.step(5_000_000);
+    }
+    let densities = clifford.get_densities_with_border(
+        size.0 as usize,
+        size.1 as usize,
+        0.05,
+        hpan,
+        vpan,
+        zoom,
+    );
+    for (i, val) in densities.iter().enumerate() {
+        let col = GRADIENT.eval_continuous((*val).powf(power));
+        let packed = argb_to_u32(0, col.r, col.g, col.b);
+
+        // let packed = hsla_to_u32(
+        //     val * lch.hue_slope + lch.hue_intercept,
+        //     val * lch.chroma_slope + lch.chroma_intercept,
+        //     // The lightness is inversely proportional to the size of of the grid, so
+        //     // adjust the lightness power accordingly
+        //     val.powf(power) * lch.light_slope + lch.light_intercept,
+        //     0.0,
+        // );
+        let x = i % size.0 as usize;
+        let y = i / size.0 as usize;
+        let (_a, r, g, b) = u32_to_argb(packed);
+        image.put_pixel(x as u32, y as u32, image::Rgb([r, g, b]));
+    }
+    image.save(filename).unwrap();
 }
 
 fn update_map(
@@ -669,33 +855,6 @@ fn from_range_to_domain(
         + lower_to;
 }
 
-// fn update_diagnostics(diag_buf: &mut Vec<u32>, clifford: &CliffordAttractor, avg_density: f64) {
-//     for param in clifford.param_history.iter() {
-//         let a_in_bounds = -5.0 <= param[0] && param[0] < 5.0;
-//         let b_in_bounds = -5.0 <= param[1] && param[1] < 5.0;
-//         let c_in_bounds = -5.0 <= param[2] && param[2] < 5.0;
-//         let d_in_bounds = -5.0 <= param[3] && param[3] < 5.0;
-//         if  a_in_bounds && b_in_bounds && c_in_bounds && d_in_bounds {
-//             let a = (param[0] + 5.0) / 10.0 * 100.0; // horizontal axis
-//             let b = (param[1] + 5.0) / 10.0 * 100.0; // vertical axis
-//             let c = ((param[2] + 5.0) / 10.0 * 200.0 + 50.0) as u8; // Red colour axis
-//             let d = ((param[3] + 5.0) / 10.0 * 200.0 + 50.0) as u8; // Green color axis
-//             let pos = b as usize * DIAG_WIDTH + a as usize;
-//             diag_buf[pos] = argb_to_u32(0, c, d, 255);
-//         }
-//     }
-//     let x = DIAG_WIDTH / 3 + (clifford.param_history.len() % ((DIAG_WIDTH * 2) / 3));
-//     for y in 0..DIAG_HEIGHT {
-//         let pos = y * DIAG_WIDTH + x as usize;
-//         diag_buf[pos] = argb_to_u32(0, 0, 0, 0);
-//     }
-//     // Raise avg_density to the power of 0.3 because there are _loads_ of small values
-//     // (1e-3 < value < 1e-1) which are still meaningful but get lost
-//     let y = (avg_density.powf(0.3) * DIAG_HEIGHT as f64 ) as usize;
-//     let pos = y * DIAG_WIDTH + x as usize;
-//     diag_buf[pos] = argb_to_u32(0, 255, 255, 255);
-// }
-
 fn u32_to_argb(packed: u32) -> (u8, u8, u8, u8) {
     let a = ((0xFF_00_00_00 & packed) >> 24) as u8;
     let r = ((0x00_FF_00_00 & packed) >> 16) as u8;
@@ -813,6 +972,10 @@ struct Command {
             &Vec<Key>,
             &mut LchParams,
             &mut Option<Vec<Vec<f64>>>,
+            &mut f64,
+            &mut f64,
+            &mut f64,
+            &mut f64,
             &mut f64,
             &mut f64,
         ) -> (),

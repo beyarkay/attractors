@@ -12,3 +12,4 @@ license = "GPL-3.0-only"
 rand = "0.8.0"
 minifb = "0.23.0"
 image = { version = "0.24.1", default-features = false, features = ["rgb", "png"] }
+colorous = "1.0.12"

@@ -3,3 +3,4 @@
 cache/*/*.png
 cache/*/*.txt
 !cache/*/special.txt
+*.png

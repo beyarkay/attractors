@@ -46,6 +46,9 @@ pub trait Attractor {
         width: usize,
         height: usize,
         perc_border: f64,
+        hpan: f64,
+        vpan: f64,
+        zoom: f64,
     ) -> Vec<f64>;
 
     fn reset(&mut self);
@@ -217,28 +220,57 @@ impl Attractor for CliffordAttractor {
     // TODO: add padding argument to display the attractor on only part of the
     // buffer
     fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64> {
-        self.get_densities_with_border(width, height, 0.0)
+        self.get_densities_with_border(width, height, 0.0, 0.0, 0.0, 1.0)
     }
     fn get_densities_with_border(
         &mut self,
         width: usize,
         height: usize,
         perc_border: f64,
+        hpan: f64,
+        vpan: f64,
+        zoom: f64,
     ) -> Vec<f64> {
         let xrange = self.xmax - self.xmin;
         let yrange = self.ymax - self.ymin;
+        let xmidpoint = self.xmin + xrange * 0.5 + hpan;
+        let ymidpoint = self.ymin + yrange * 0.5 + vpan;
+
+        // a zoom level of XX is a range of YYY:
+        // - 2.0 => [0.25, 0.75]
+        // - 1.0 => [0, 1]
+        // - 0.5 => [-0.5, 1.5]
+        let zoomed_xrange = xrange / zoom;
+        let zoomed_xmin = xmidpoint - zoomed_xrange * 0.5;
+        let zoomed_xmax = xmidpoint + zoomed_xrange * 0.5;
+
+        let zoomed_yrange = yrange / zoom;
+        let zoomed_ymin = ymidpoint - zoomed_yrange * 0.5;
+        let zoomed_ymax = ymidpoint + zoomed_yrange * 0.5;
+
         let mut densities = vec![0.0; width * height];
         let mut densities_max = 0.0;
 
         // First loop over the history, flooring all the values to find
         // a histogram of how many times the attractor hit each xy point
         for pos in self.history.iter() {
-            let x_full = width as f64 * (pos[0] - self.xmin) / xrange;
-            let y_full = height as f64 * (pos[1] - self.ymin) / yrange;
-            let x =
-                (x_full * (1.0 - 2.0 * perc_border) + width as f64 * perc_border).floor() as usize;
-            let y =
-                (y_full * (1.0 - 2.0 * perc_border) + height as f64 * perc_border).floor() as usize;
+            // If x or y is out of bounds, don't attempt to draw the point
+            let oob_y = pos[1] < zoomed_ymin || pos[1] > zoomed_ymax;
+            let oob_x = pos[0] < zoomed_xmin || pos[0] > zoomed_xmax;
+            if oob_y || oob_x {
+                continue;
+            }
+            // the normed values are in the range [0, 1]
+            let normed_xval = (pos[0] - zoomed_xmin) / zoomed_xrange;
+            let normed_yval = (pos[1] - zoomed_ymin) / zoomed_yrange;
+            // let normed_xval = (pos[0] - self.xmin) / xrange;
+            // let normed_yval = (pos[1] - self.ymin) / yrange;
+
+            let x_full = width as f64 * normed_xval;
+            let y_full = height as f64 * normed_yval;
+            let non_border_frac = 1.0 - 2.0 * perc_border;
+            let x = (x_full * non_border_frac + width as f64 * perc_border).floor() as usize;
+            let y = (y_full * non_border_frac + height as f64 * perc_border).floor() as usize;
             let i = x + y * width;
             densities[i] += 1.0;
             if densities[i] > densities_max {
@@ -250,7 +282,7 @@ impl Attractor for CliffordAttractor {
         for idx in &mut densities {
             *idx /= densities_max;
         }
-        return densities;
+        densities
     }
 
     /// Write the Clifford Attractor to the file named `filename`
@@ -405,13 +437,16 @@ impl Attractor for DeJongAttractor {
     }
 
     fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64> {
-        self.get_densities_with_border(width, height, 0.0)
+        self.get_densities_with_border(width, height, 0.0, 0.0, 0.0, 1.0)
     }
     fn get_densities_with_border(
         &mut self,
         width: usize,
         height: usize,
         _perc_border: f64,
+        hpan: f64,
+        vpan: f64,
+        zoom: f64,
     ) -> Vec<f64> {
         let xrange = self.xmax - self.xmin;
         let yrange = self.ymax - self.ymin;

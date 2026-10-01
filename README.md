@@ -1,4 +1,5 @@
 # Attractors
+
 A [Rust](https://www.rust-lang.org/) project to generate and explore [strange
 attractors](https://en.wikipedia.org/wiki/Attractor#Strange_attractor) visually
 and easily. The emphasis is on using strange attractors as an artistic medium,
@@ -11,6 +12,7 @@ and running the code to find your own. Following that is some more background
 info about strange attractors and the different types.
 
 ## Examples of strange attractors
+
 See more images in the [`imgs`](https://github.com/beyarkay/attractors/tree/main/img)
 directory. They're all very high resolution (about 7000 pixels on each side) so
 you can print them out at An size at 300 DPI.
@@ -21,21 +23,24 @@ you can print them out at An size at 300 DPI.
 ## Get started and making your own strange attractors
 
 Install the rust compiler and cargo by following the instructions at [install
-rust](https://www.rust-lang.org/tools/install) or by running the command: 
+rust](https://www.rust-lang.org/tools/install) or by running the command:
+
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Then clone this project: 
+Then clone this project:
 
 ```sh
 git clone https://github.com/beyarkay/attractors.git
 ```
 
 Change directory and run the project in `--release` mode:
+
 ```sh
 cd attractors && cargo run --release
 ```
+
 The extra optimisations given by the `--release` flag are _really_ required for
 a smooth experience.
 
@@ -47,10 +52,11 @@ window.
 Click on the large square window to focus it. The attractor will automatically
 be drawn, and you can change the 4 parameters fed to the attractor (named a, b,
 c, d) with vim-like key bindings:
+
 ```
-j -> decrease a; k -> increase a; 
+j -> decrease a; k -> increase a;
 J -> decrease b; K -> increase b;
-h -> decrease c; l -> increase c; 
+h -> decrease c; l -> increase c;
 H -> decrease d; L -> increase d;
 ```
 
@@ -59,18 +65,19 @@ H -> decrease d; L -> increase d;
 If you look at the Map window, you'll see four 2D plots. Each of the four plots
 shows two parameters, and together they can guide you around the 4D parameter
 space. The plots are: a-b, a-d, c-b, and c-d. They're oriented like this:
-```
-       b            d     
-       |            |     
-  -----+----a  -----+----a
-       |            |     
-       |            |     
 
-       b            d     
-       |            |     
+```
+       b            d
+       |            |
+  -----+----a  -----+----a
+       |            |
+       |            |
+
+       b            d
+       |            |
   -----+----c  -----+----c
-       |            |     
-       |            |     
+       |            |
+       |            |
 ```
 
 And the window looks like this:
@@ -92,17 +99,20 @@ four cross-hairs need to line up different white dots but it's a fun exercise.
 ### Other commands
 
 Additionally, you can select a random set of parameters by pressing R:
+
 ```
 `[R]` => Randomize the Clifford parameters and re-run the attractor with these new parameters
 ```
 
 You can `print` off an attractor by pressing `p` which will save it as a `.png`
 in `cached/clifford/`.
+
 ```
 `[P]` => Save the attractor in high resolution to disc as png (enabled: true)
 ```
 
 You can also change the hue of the attractor by pressing `e` or `E`:
+
 ```
 `[E]` => Increase or decrease the LCH hue intercept by 0.01 (enabled: true)
 ```
@@ -111,15 +121,17 @@ Pressing `n` or `N` will increase/decrease the decay factor between 0 and 1.
 Values closer to zero will cause previous attractors to blend into future
 attractors like echoes, which is a nice effect but primarily is good at reducing
 the strobing and stuttering effect dangerous to those with photosensitive epilepsy.
+
 ```
 `[N]` =>  Change how quickly one attractor merges to another (helps with photosensitive epilepsy)
 ```
 
-
 ## What are Strange Attractors
+
 Strange attractors are (usually) a recursive formula which take in a point in
 2D or 3D space and (using a set of parameters) return a different point in that
 space. An example equation might be:
+
 ```
 x_new = sin(a * y_old) + c * cos(a * x_old)
 y_new = sin(b * x_old) + d * cos(b * y_old)
@@ -139,21 +151,25 @@ See these links for examples of strange attractors.
 - [Juan Attractors](http://paulbourke.net/fractals/juan2/)
 - [Den Tsucs Attractors](http://paulbourke.net/fractals/tsucs/)
 - [Sánchez 'Bad Hairday' Attractors](http://paulbourke.net/fractals/2dmap/), also see
-[here](https://www.r-bloggers.com/2019/10/strange-attractors-an-r-experiment-about-maths-recursivity-and-creative-coding/)
+  [here](https://www.r-bloggers.com/2019/10/strange-attractors-an-r-experiment-about-maths-recursivity-and-creative-coding/)
 - [Arneodo Attractors](http://paulbourke.net/fractals/arneodo/)
 - [Catrián Attractors](http://paulbourke.net/fractals/JuanCatrian/)
 - [Burke-Shaw Attractors](http://paulbourke.net/fractals/burkeshaw/)
 - [Yu-Wang Attractors](http://paulbourke.net/fractals/yuwang/)
 - [Tinkerbell Attractor](https://en.wikipedia.org/wiki/Tinkerbell_map)
 - [The King's Dream Attractors](https://nathanselikoff.com/training/tutorial-strange-attractors-in-c-and-opengl)
-    - ```float xnew = sin(y*b) + c*sin(x*b); float ynew = sin(x*a) + d*sin(y*a);```
+  - `float xnew = sin(y*b) + c*sin(x*b); float ynew = sin(x*a) + d*sin(y*a);`
 - [Others defined on wikipedia/chaotic_maps](https://en.wikipedia.org/wiki/List_of_chaotic_maps)
 - [Others defined on Chaoscope](http://www.chaoscope.org/doc/attractors.htm)
 
-
 ## TODO
+
 - Add Diagnostics: fractal dimension greater than 1.5 => Chaotic?
 - Add Diagnostics: positive Lyapunov exponent => Chaotic
 - Add a way to create videos
 - Add a way to line up parameter changes with timestamps so that the moving
   attractors will 'react' in time with the music
+- Use crate `meval` to auto-parse maths formulas for new attractors
+- Add in commands to pan and zoom the display window
+- Add in better colour palettes (maybe https://crates.io/crates/palette,
+  https://crates.io/crates/color-art, or https://crates.io/crates/colorous?)
