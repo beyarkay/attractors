@@ -1,12 +1,10 @@
-extern crate minifb;
-mod attractors;
 use std::fs::File;
 use std::thread::sleep;
 use std::time::Duration;
 use std::{env, fs};
 use std::{fmt::Display, fs::OpenOptions, io::BufWriter, path::Path};
 
-use crate::attractors::*;
+use attractors::*;
 use colorous::Gradient;
 use image::{ImageBuffer, RgbImage};
 use minifb::{clamp, CursorStyle, Key, MouseButton, MouseMode, Window, WindowOptions};
