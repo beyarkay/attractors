@@ -63,6 +63,13 @@ pub const WARMUP_STEPS: usize = 20_000;
 /// Extra uncounted steps per walker, after warm-up, used to estimate bounds for attractors
 /// that don't provide them
 const BOUNDS_SAMPLE_STEPS: usize = 2_000;
+/// After a reset, walker `i` first follows the orbit for `i * PHASE_STEPS` steps, so walkers on a
+/// cycle or slow rotation start at different points around it instead of moving in lockstep
+const PHASE_STEPS: usize = 101;
+/// Then it's nudged by `i * WALKER_SPREAD`, which chaos turns into an independent trajectory
+/// within ~100 warm-up steps. Staying this close keeps every walker inside thin attractors'
+/// basins (Tinkerbell's is ~1e-3 wide).
+const WALKER_SPREAD: f64 = 1e-9;
 /// Walkers further than this from the origin are treated as escaped to infinity
 const ESCAPED: f64 = 1e6;
 /// More walkers than threads lets fast cores run more walkers than slow ones
@@ -113,6 +120,20 @@ impl Sampler {
     /// Call after changing the attractor's parameters. Walkers restart, slightly nudged apart,
     /// from where the first walker was (or the start, if it escaped), and warm up again before
     /// anything is counted.
+    /// Every walker has escaped to infinity, so nothing will be drawn
+    pub fn escaped(&self) -> bool {
+        self.positions
+            .iter()
+            .all(|&(x, y)| !(x.abs() < ESCAPED && y.abs() < ESCAPED))
+    }
+
+    /// No walker has escaped to infinity
+    pub fn all_alive(&self) -> bool {
+        self.positions
+            .iter()
+            .all(|&(x, y)| x.abs() < ESCAPED && y.abs() < ESCAPED)
+    }
+
     pub fn reset(&mut self) {
         let (x, y) = self.positions[0];
         let start = if x.abs() < ESCAPED && y.abs() < ESCAPED {
@@ -140,7 +161,11 @@ impl Sampler {
             let estimate = attractor.bounds().is_none();
             let mut seen = vec![None; all_threads];
             run_walkers(&mut self.positions, &mut seen, |i, pos, seen| {
-                let (mut x, mut y) = (start.0 + i as f64 * 1e-3, start.1);
+                let (mut x, mut y) = start;
+                for _ in 0..i * PHASE_STEPS {
+                    (x, y) = attractor.next(x, y);
+                }
+                x += i as f64 * WALKER_SPREAD * (1.0 + x.abs());
                 for _ in 0..WARMUP_STEPS {
                     (x, y) = attractor.next(x, y);
                 }

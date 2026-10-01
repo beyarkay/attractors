@@ -35,6 +35,8 @@ pub trait Attractor: Clone + Send + Sync + 'static {
     const PARAM_RANGE: (f64, f64);
     /// Where walkers start. Must not be a fixed point of the formula.
     const START: (f64, f64) = (0.0, 0.0);
+    /// How much each key press changes a parameter, to begin with
+    const STEP: f64 = 0.1;
 
     /// `params` has one value per entry of `PARAM_NAMES`
     fn from_params(params: &[f64]) -> Self;
@@ -282,6 +284,8 @@ impl Attractor for TinkerbellAttractor {
     const DEFAULT_PARAMS: &'static [f64] = &[0.9, -0.6013, 2.0, 0.5];
     const PARAM_RANGE: (f64, f64) = (-3.0, 3.0);
     const START: (f64, f64) = (-0.72, -0.64);
+    /// Steps of 0.1 in a or b send it to infinity
+    const STEP: f64 = 0.01;
 
     fn from_params(params: &[f64]) -> Self {
         TinkerbellAttractor {

@@ -155,7 +155,7 @@ impl<A: Attractor> Explorer<A> {
             cache_dir: cache_dir.to_path_buf(),
             window_start: 0,
             noodle_factor: 0.9,
-            delta: 0.1,
+            delta: A::STEP,
             look: Look::default(),
             switch_kind: None,
             commands: commands(),
@@ -235,8 +235,13 @@ impl<A: Attractor> Explorer<A> {
         let params: Vec<String> = (self.window_start..end)
             .map(|i| format!("{} {:+.3}", A::PARAM_NAMES[i], self.attractor.params()[i]))
             .collect();
+        let escaped = if self.sampler.escaped() {
+            "   |   escaped to infinity, try other parameters"
+        } else {
+            ""
+        };
         format!(
-            "{}   {}   |   {}   |   step {}   |   ? for help",
+            "{}   {}   |   {}   |   step {}   |   ? for help{escaped}",
             A::NAME,
             params.join("   "),
             self.look.palette().name,
@@ -854,6 +859,32 @@ mod tests {
     }
 
     #[test]
+    fn tinkerbell_shows_when_a_nudge_escapes() {
+        // Tinkerbell's defaults are at the edge: some directions survive, others escape
+        let (mut e, mut b) = explorer::<crate::attractors::TinkerbellAttractor>("tinkerbell");
+        for key in [Key::J, Key::I] {
+            press(&mut e, &mut b, Input::keys(&[key]));
+            press(&mut e, &mut b, Input::default());
+            assert!(
+                !e.title().contains("escaped"),
+                "after {key:?}: {}",
+                e.title()
+            );
+        }
+        let (mut e, mut b) = explorer::<crate::attractors::TinkerbellAttractor>("tinkerbell2");
+        press(&mut e, &mut b, Input::keys(&[Key::U]));
+        press(&mut e, &mut b, Input::default());
+        assert!(e.title().contains("escaped to infinity"), "{}", e.title());
+    }
+
+    #[test]
+    fn every_walker_survives_a_reset_on_a_thin_attractor() {
+        let (mut e, mut b) = explorer::<crate::attractors::TinkerbellAttractor>("survive");
+        press(&mut e, &mut b, Input::keys(&[Key::J]));
+        assert!(e.sampler.all_alive());
+    }
+
+    #[test]
     fn step_size_key_scales_the_nudge() {
         let (mut e, mut b) = explorer::<CliffordAttractor>("step");
         press(&mut e, &mut b, Input::keys(&[Key::T]).shifted());
@@ -1007,6 +1038,7 @@ mod tests {
         press(&mut e, &mut b, Input::default());
         let first = b.preview[0];
         assert!(b.preview.iter().all(|&p| p == first));
+        assert!(e.title().contains("escaped to infinity"), "{}", e.title());
         // And recovers once the parameters are sensible again
         press(
             &mut e,
@@ -1015,5 +1047,6 @@ mod tests {
         );
         press(&mut e, &mut b, Input::default());
         assert!(b.preview.iter().any(|&p| p != first));
+        assert!(!e.title().contains("escaped"), "{}", e.title());
     }
 }
