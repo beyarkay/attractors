@@ -13,7 +13,7 @@ use std::path::Path;
 
 use attractors::render::{write_png, Look};
 use attractors::{
-    format_params, parse_params, Attractor, CliffordAttractor, Histogram, Sampler, View,
+    format_params, parse_params, Attractor, CliffordAttractor, Histogram, Point, Sampler, View,
 };
 
 const SIZE: usize = 400;
@@ -41,7 +41,7 @@ struct Run {
 
 impl Run {
     /// `None` uses the default multi-core sampler, otherwise one trajectory from `start`
-    fn new(params: &[f64], start: Option<(f64, f64)>) -> Self {
+    fn new(params: &[f64], start: Option<Point>) -> Self {
         Run {
             attractor: CliffordAttractor::from_params(params),
             sampler: start.map_or_else(
@@ -84,8 +84,8 @@ fn main() {
 
     for (idx, params) in chosen.iter().enumerate() {
         let mut runs = [
-            Run::new(params, Some((0.0, 0.0))),
-            Run::new(params, Some((1.3, -0.7))),
+            Run::new(params, Some([0.0, 0.0, 0.0])),
+            Run::new(params, Some([1.3, -0.7, 0.0])),
             Run::new(params, None),
         ];
         let mut done = 0;

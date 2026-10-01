@@ -15,6 +15,9 @@
 //! - [Burke-Shaw Attractors](http://paulbourke.net/fractals/burkeshaw/)
 //! - [Yu-Wang Attractors](http://paulbourke.net/fractals/yuwang/)
 
+/// A point in the attractor's space. Maps on the plane leave z at 0.
+pub type Point = [f64; 3];
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bounds {
     pub xmin: f64,
@@ -34,7 +37,9 @@ pub trait Attractor: Clone + Send + Sync + 'static {
     /// Range shown for every parameter on the map, and used for random jumps
     const PARAM_RANGE: (f64, f64);
     /// Where walkers start. Must not be a fixed point of the formula.
-    const START: (f64, f64) = (0.0, 0.0);
+    const START: Point = [0.0; 3];
+    /// Which coordinates of a point are drawn as the image's x and y
+    const PROJECTION: (usize, usize) = (0, 1);
     /// How much each key press changes a parameter, to begin with
     const STEP: f64 = 0.1;
     /// Uncounted steps per walker used to estimate bounds when `bounds` returns `None`
@@ -45,14 +50,14 @@ pub trait Attractor: Clone + Send + Sync + 'static {
 
     fn params(&self) -> &[f64];
 
-    /// A box guaranteed to contain every point of the attractor, if one is known. Otherwise the
-    /// sampler estimates one from its warm-up points.
+    /// A box guaranteed to contain every drawn (projected) point of the attractor, if one is
+    /// known. Otherwise the sampler estimates one from its warm-up points.
     fn bounds(&self) -> Option<Bounds> {
         None
     }
 
-    /// One application of the attractor's formula.
-    fn next(&self, x: f64, y: f64) -> (f64, f64);
+    /// One step: one application of a map's formula, or one integration step of a flow.
+    fn next(&self, p: Point) -> Point;
 
     fn with_param(&self, idx: usize, value: f64) -> Self {
         let mut params = self.params().to_vec();
@@ -92,26 +97,26 @@ pub fn format_params(names: &[&str], params: &[f64]) -> String {
 pub fn lyapunov_exponent<A: Attractor>(attractor: &A, steps: usize) -> f64 {
     const SEPARATION: f64 = 1e-8;
     const ESCAPED: f64 = 1e6;
-    let (mut x, mut y) = A::START;
+    let mut p = A::START;
     for _ in 0..1_000 {
-        (x, y) = attractor.next(x, y);
+        p = attractor.next(p);
     }
-    let (mut xe, mut ye) = (x + SEPARATION, y);
+    let mut q = p;
+    q[0] += SEPARATION;
     let mut sum = 0.0;
     for _ in 0..steps {
-        (x, y) = attractor.next(x, y);
-        (xe, ye) = attractor.next(xe, ye);
-        if !(x.abs() < ESCAPED && y.abs() < ESCAPED) {
+        p = attractor.next(p);
+        q = attractor.next(q);
+        if !p.iter().all(|c| c.abs() < ESCAPED) {
             return f64::NAN;
         }
-        let (dx, dy) = (xe - x, ye - y);
-        let d = dx.hypot(dy);
-        if d == 0.0 {
+        let d = [0, 1, 2].map(|i| q[i] - p[i]);
+        let dist = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        if dist == 0.0 {
             return f64::NEG_INFINITY;
         }
-        sum += (d / SEPARATION).ln();
-        xe = x + dx * SEPARATION / d;
-        ye = y + dy * SEPARATION / d;
+        sum += (dist / SEPARATION).ln();
+        q = [0, 1, 2].map(|i| p[i] + d[i] * SEPARATION / dist);
     }
     sum / steps as f64
 }
@@ -151,12 +156,13 @@ impl Attractor for CliffordAttractor {
     }
 
     #[inline(always)]
-    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+    fn next(&self, [x, y, _]: Point) -> Point {
         let [a, b, c, d] = self.p;
-        (
+        [
             (a * y).sin() + c * (a * x).cos(),
             (b * x).sin() + d * (b * y).cos(),
-        )
+            0.0,
+        ]
     }
 }
 
@@ -193,9 +199,13 @@ impl Attractor for DeJongAttractor {
     }
 
     #[inline(always)]
-    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+    fn next(&self, [x, y, _]: Point) -> Point {
         let [a, b, c, d] = self.p;
-        ((a * y).sin() - (b * x).cos(), (c * x).sin() - (d * y).cos())
+        [
+            (a * y).sin() - (b * x).cos(),
+            (c * x).sin() - (d * y).cos(),
+            0.0,
+        ]
     }
 }
 
@@ -211,7 +221,7 @@ impl Attractor for KingsDreamAttractor {
     const PARAM_NAMES: &'static [&'static str] = &["a", "b", "c", "d"];
     const DEFAULT_PARAMS: &'static [f64] = &[-0.966918, 2.879879, 0.765145, 0.744728];
     const PARAM_RANGE: (f64, f64) = (-3.0, 3.0);
-    const START: (f64, f64) = (0.1, 0.1);
+    const START: Point = [0.1, 0.1, 0.0];
 
     fn from_params(params: &[f64]) -> Self {
         KingsDreamAttractor {
@@ -234,12 +244,13 @@ impl Attractor for KingsDreamAttractor {
     }
 
     #[inline(always)]
-    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+    fn next(&self, [x, y, _]: Point) -> Point {
         let [a, b, c, d] = self.p;
-        (
+        [
             (b * y).sin() + c * (b * x).sin(),
             (a * x).sin() + d * (a * y).sin(),
-        )
+            0.0,
+        ]
     }
 }
 
@@ -267,9 +278,9 @@ impl Attractor for HenonAttractor {
     }
 
     #[inline(always)]
-    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+    fn next(&self, [x, y, _]: Point) -> Point {
         let [a, b] = self.p;
-        (1.0 - a * x * x + y, b * x)
+        [1.0 - a * x * x + y, b * x, 0.0]
     }
 }
 
@@ -285,7 +296,7 @@ impl Attractor for TinkerbellAttractor {
     const PARAM_NAMES: &'static [&'static str] = &["a", "b", "c", "d"];
     const DEFAULT_PARAMS: &'static [f64] = &[0.9, -0.6013, 2.0, 0.5];
     const PARAM_RANGE: (f64, f64) = (-3.0, 3.0);
-    const START: (f64, f64) = (-0.72, -0.64);
+    const START: Point = [-0.72, -0.64, 0.0];
     /// Steps of 0.1 in a or b send it to infinity
     const STEP: f64 = 0.01;
 
@@ -300,9 +311,13 @@ impl Attractor for TinkerbellAttractor {
     }
 
     #[inline(always)]
-    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+    fn next(&self, [x, y, _]: Point) -> Point {
         let [a, b, c, d] = self.p;
-        (x * x - y * y + a * x + b * y, 2.0 * x * y + c * x + d * y)
+        [
+            x * x - y * y + a * x + b * y,
+            2.0 * x * y + c * x + d * y,
+            0.0,
+        ]
     }
 }
 
@@ -323,7 +338,7 @@ impl Attractor for SprottQuadraticAttractor {
         0.2, -0.8, -0.3, -0.6, -0.8, -0.8, 0.8, 0.0, -1.2, 0.2, 0.4, 0.3,
     ];
     const PARAM_RANGE: (f64, f64) = (-1.2, 1.2);
-    const START: (f64, f64) = (0.05, 0.05);
+    const START: Point = [0.05, 0.05, 0.0];
 
     fn from_params(params: &[f64]) -> Self {
         SprottQuadraticAttractor {
@@ -336,12 +351,13 @@ impl Attractor for SprottQuadraticAttractor {
     }
 
     #[inline(always)]
-    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+    fn next(&self, [x, y, _]: Point) -> Point {
         let [a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12] = self.p;
-        (
+        [
             a1 + a2 * x + a3 * x * x + a4 * x * y + a5 * y + a6 * y * y,
             a7 + a8 * x + a9 * x * x + a10 * x * y + a11 * y + a12 * y * y,
-        )
+            0.0,
+        ]
     }
 }
 
@@ -372,9 +388,9 @@ impl Attractor for HopalongAttractor {
     }
 
     #[inline(always)]
-    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+    fn next(&self, [x, y, _]: Point) -> Point {
         let [a, b, c] = self.p;
-        (y - x.signum() * (b * x - c).abs().sqrt(), a - x)
+        [y - x.signum() * (b * x - c).abs().sqrt(), a - x, 0.0]
     }
 }
 
@@ -399,7 +415,7 @@ impl Attractor for GumowskiMiraAttractor {
     const PARAM_NAMES: &'static [&'static str] = &["a", "s", "mu"];
     const DEFAULT_PARAMS: &'static [f64] = &[0.008, 0.05, -0.496];
     const PARAM_RANGE: (f64, f64) = (-1.0, 1.0);
-    const START: (f64, f64) = (0.1, 0.1);
+    const START: Point = [0.1, 0.1, 0.0];
 
     fn from_params(params: &[f64]) -> Self {
         GumowskiMiraAttractor {
@@ -412,10 +428,10 @@ impl Attractor for GumowskiMiraAttractor {
     }
 
     #[inline(always)]
-    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+    fn next(&self, [x, y, _]: Point) -> Point {
         let [a, s, mu] = self.p;
         let nx = y + a * (1.0 - s * y * y) * y + Self::f(mu, x);
-        (nx, -x + Self::f(mu, nx))
+        [nx, -x + Self::f(mu, nx), 0.0]
     }
 }
 
@@ -445,10 +461,10 @@ impl Attractor for IkedaAttractor {
     }
 
     #[inline(always)]
-    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+    fn next(&self, [x, y, _]: Point) -> Point {
         let [u] = self.p;
         let (sin, cos) = (0.4 - 6.0 / (1.0 + x * x + y * y)).sin_cos();
-        (1.0 + u * (x * cos - y * sin), u * (x * sin + y * cos))
+        [1.0 + u * (x * cos - y * sin), u * (x * sin + y * cos), 0.0]
     }
 }
 
@@ -464,7 +480,7 @@ impl Attractor for DuffingAttractor {
     const PARAM_NAMES: &'static [&'static str] = &["a", "b"];
     const DEFAULT_PARAMS: &'static [f64] = &[2.75, 0.2];
     const PARAM_RANGE: (f64, f64) = (-3.0, 3.0);
-    const START: (f64, f64) = (0.1, 0.1);
+    const START: Point = [0.1, 0.1, 0.0];
 
     fn from_params(params: &[f64]) -> Self {
         DuffingAttractor {
@@ -477,9 +493,9 @@ impl Attractor for DuffingAttractor {
     }
 
     #[inline(always)]
-    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+    fn next(&self, [x, y, _]: Point) -> Point {
         let [a, b] = self.p;
-        (y, -b * x + a * y - y * y * y)
+        [y, -b * x + a * y - y * y * y, 0.0]
     }
 }
 
@@ -507,9 +523,9 @@ impl Attractor for LoziAttractor {
     }
 
     #[inline(always)]
-    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+    fn next(&self, [x, y, _]: Point) -> Point {
         let [a, b] = self.p;
-        (1.0 - a * x.abs() + y, b * x)
+        [1.0 - a * x.abs() + y, b * x, 0.0]
     }
 }
 
@@ -525,7 +541,7 @@ impl Attractor for BedheadAttractor {
     const PARAM_NAMES: &'static [&'static str] = &["a", "b"];
     const DEFAULT_PARAMS: &'static [f64] = &[-0.81, -0.92];
     const PARAM_RANGE: (f64, f64) = (-1.0, 1.0);
-    const START: (f64, f64) = (1.0, 1.0);
+    const START: Point = [1.0, 1.0, 0.0];
 
     fn from_params(params: &[f64]) -> Self {
         BedheadAttractor {
@@ -538,9 +554,13 @@ impl Attractor for BedheadAttractor {
     }
 
     #[inline(always)]
-    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+    fn next(&self, [x, y, _]: Point) -> Point {
         let [a, b] = self.p;
-        ((x * y / b).sin() * y + (a * x - y).cos(), x + y.sin() / b)
+        [
+            (x * y / b).sin() * y + (a * x - y).cos(),
+            x + y.sin() / b,
+            0.0,
+        ]
     }
 }
 
@@ -578,12 +598,13 @@ impl Attractor for SvenssonAttractor {
     }
 
     #[inline(always)]
-    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+    fn next(&self, [x, y, _]: Point) -> Point {
         let [a, b, c, d] = self.p;
-        (
+        [
             d * (a * x).sin() - (b * y).sin(),
             c * (a * x).cos() + (b * y).cos(),
-        )
+            0.0,
+        ]
     }
 }
 
@@ -618,7 +639,7 @@ mod tests {
     fn clifford_y_uses_previous_x() {
         let c = CliffordAttractor::from_params(&[-1.4, 1.6, 1.0, 0.7]);
         let (x, y) = (0.3, -0.2);
-        let (nx, ny) = c.next(x, y);
+        let [nx, ny, _] = c.next([x, y, 0.0]);
         assert_eq!(nx, (-1.4 * y).sin() + 1.0 * (-1.4 * x).cos());
         assert_eq!(ny, (1.6 * x).sin() + 0.7 * (1.6 * y).cos());
     }

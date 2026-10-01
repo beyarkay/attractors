@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::thread;
 
-use crate::attractors::{Attractor, Bounds};
+use crate::attractors::{Attractor, Bounds, Point};
 
 /// Which part of the attractor's bounding box is drawn, and how much empty border surrounds it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -87,9 +87,9 @@ pub fn num_threads() -> usize {
 /// walkers from a queue, so slower cores simply run fewer of them.
 #[derive(Clone)]
 pub struct Sampler {
-    positions: Vec<(f64, f64)>,
+    positions: Vec<Point>,
     /// Where walkers restart if they escaped to infinity
-    start: (f64, f64),
+    start: Point,
     needs_warmup: bool,
     /// Estimated during warm-up for attractors without their own bounds
     estimated_bounds: Option<Bounds>,
@@ -99,11 +99,11 @@ pub struct Sampler {
 
 impl Sampler {
     /// Usually `start` is the attractor's `Attractor::START`
-    pub fn new(start: (f64, f64)) -> Self {
+    pub fn new(start: Point) -> Self {
         Sampler::with_walkers(WALKERS_PER_THREAD * num_threads(), start)
     }
 
-    pub fn with_walkers(walkers: usize, start: (f64, f64)) -> Self {
+    pub fn with_walkers(walkers: usize, start: Point) -> Self {
         assert!(walkers > 0);
         Sampler {
             positions: vec![start; walkers],
@@ -114,30 +114,22 @@ impl Sampler {
         }
     }
 
-    /// Call after changing the attractor's parameters. Walkers restart, slightly nudged apart,
-    /// from where the first walker was (or the start, if it escaped), and warm up again before
-    /// anything is counted.
     /// Every walker has escaped to infinity, so nothing will be drawn
     pub fn escaped(&self) -> bool {
-        self.positions
-            .iter()
-            .all(|&(x, y)| !(x.abs() < ESCAPED && y.abs() < ESCAPED))
+        self.positions.iter().all(|p| !alive(p))
     }
 
     /// No walker has escaped to infinity
     pub fn all_alive(&self) -> bool {
-        self.positions
-            .iter()
-            .all(|&(x, y)| x.abs() < ESCAPED && y.abs() < ESCAPED)
+        self.positions.iter().all(alive)
     }
 
+    /// Call after changing the attractor's parameters. Walkers restart, slightly nudged apart,
+    /// from where the first walker was (or the start, if it escaped), and warm up again before
+    /// anything is counted.
     pub fn reset(&mut self) {
-        let (x, y) = self.positions[0];
-        let start = if x.abs() < ESCAPED && y.abs() < ESCAPED {
-            (x, y)
-        } else {
-            self.start
-        };
+        let first = self.positions[0];
+        let start = if alive(&first) { first } else { self.start };
         self.positions.fill(start);
         self.needs_warmup = true;
     }
@@ -158,23 +150,24 @@ impl Sampler {
             let estimate = attractor.bounds().is_none();
             let mut seen = vec![None; all_threads];
             run_walkers(&mut self.positions, &mut seen, |i, pos, seen| {
-                let (mut x, mut y) = start;
+                let mut p = start;
                 for _ in 0..i * PHASE_STEPS {
-                    (x, y) = attractor.next(x, y);
+                    p = attractor.next(p);
                 }
-                x += i as f64 * WALKER_SPREAD * (1.0 + x.abs());
+                p[0] += i as f64 * WALKER_SPREAD * (1.0 + p[0].abs());
                 for _ in 0..WARMUP_STEPS {
-                    (x, y) = attractor.next(x, y);
+                    p = attractor.next(p);
                 }
                 if estimate {
                     for _ in 0..A::BOUNDS_SAMPLE_STEPS {
-                        (x, y) = attractor.next(x, y);
-                        if x.abs() < ESCAPED && y.abs() < ESCAPED {
+                        p = attractor.next(p);
+                        if alive(&p) {
+                            let (x, y) = project::<A>(&p);
                             *seen = Some(extend(*seen, x, y));
                         }
                     }
                 }
-                *pos = (x, y);
+                *pos = p;
             });
             self.estimated_bounds = seen
                 .into_iter()
@@ -230,6 +223,16 @@ impl Sampler {
         }
         hist.steps += num_steps;
     }
+}
+
+fn alive(p: &Point) -> bool {
+    p.iter().all(|c| c.abs() < ESCAPED)
+}
+
+/// The coordinates of `p` that are drawn
+#[inline(always)]
+fn project<A: Attractor>(p: &Point) -> (f64, f64) {
+    (p[A::PROJECTION.0], p[A::PROJECTION.1])
 }
 
 fn extend(bounds: Option<Bounds>, x: f64, y: f64) -> Bounds {
@@ -292,27 +295,28 @@ fn walk<A: Attractor, C: Counts + ?Sized>(
     attractor: &A,
     mapping: &PixelMapping,
     steps: usize,
-    pos: &mut (f64, f64),
+    pos: &mut Point,
     counts: &mut C,
 ) -> u32 {
-    let (mut x, mut y) = *pos;
+    let mut p = *pos;
     let mut max = 0;
     for _ in 0..steps {
-        (x, y) = attractor.next(x, y);
+        p = attractor.next(p);
+        let (x, y) = project::<A>(&p);
         if let Some(idx) = mapping.index(x, y) {
             max = max.max(counts.add(idx));
         }
     }
-    *pos = (x, y);
+    *pos = p;
     max
 }
 
 /// Run `f(walker index, walker position, thread state)` for every walker, with one thread per
 /// element of `per_thread`. Threads take walkers from a queue, so faster cores run more of them.
-fn run_walkers<T, F>(positions: &mut [(f64, f64)], per_thread: &mut [T], f: F)
+fn run_walkers<T, F>(positions: &mut [Point], per_thread: &mut [T], f: F)
 where
     T: Send,
-    F: Fn(usize, &mut (f64, f64), &mut T) + Sync,
+    F: Fn(usize, &mut Point, &mut T) + Sync,
 {
     if let [state] = per_thread {
         for (i, pos) in positions.iter_mut().enumerate() {
@@ -427,7 +431,7 @@ mod tests {
     #[test]
     fn step_takes_exactly_n_steps() {
         let c = CliffordAttractor::from_params(PARAMS);
-        let mut sampler = Sampler::new((0.0, 0.0));
+        let mut sampler = Sampler::new([0.0; 3]);
         let mut hist = Histogram::new(10, 10);
         sampler.step(&c, 1, &mut hist, &View::default());
         assert_eq!(hist.steps, 1);
@@ -448,14 +452,14 @@ mod tests {
             vpan: -1.0,
             zoom: 1.0,
         };
-        Sampler::new((0.0, 0.0)).step(&c, 10, &mut hist, &view);
+        Sampler::new([0.0; 3]).step(&c, 10, &mut hist, &view);
         assert_eq!(hist.counts[7 * 5 - 1], 10);
     }
 
     #[test]
     fn parallel_step_counts_every_point_and_tracks_max() {
         let c = CliffordAttractor::from_params(PARAMS);
-        let mut sampler = Sampler::new((0.0, 0.0));
+        let mut sampler = Sampler::new([0.0; 3]);
         let mut hist = Histogram::new(64, 64);
         let n = PARALLEL_MIN_STEPS * 3 + 7;
         sampler.step(&c, n, &mut hist, &View::default());
@@ -472,7 +476,7 @@ mod tests {
     fn parallel_step_is_deterministic() {
         let c = CliffordAttractor::from_params(PARAMS);
         let render = || {
-            let mut sampler = Sampler::new((0.0, 0.0));
+            let mut sampler = Sampler::new([0.0; 3]);
             let mut hist = Histogram::new(64, 64);
             for _ in 0..3 {
                 sampler.step(&c, PARALLEL_MIN_STEPS * 2, &mut hist, &View::default());
@@ -490,7 +494,7 @@ mod tests {
             hpan: 1000.0,
             ..View::default()
         };
-        Sampler::new((0.0, 0.0)).step(&c, 1000, &mut hist, &view);
+        Sampler::new([0.0; 3]).step(&c, 1000, &mut hist, &view);
         assert_eq!(hist.max, 0);
         assert_eq!(hist.steps, 1000);
     }
@@ -500,7 +504,7 @@ mod tests {
         let threads = num_threads();
         let side = ((PER_THREAD_COUNTS_MAX_BYTES / 4 / threads) as f64).sqrt() as usize + 1;
         let c = CliffordAttractor::from_params(PARAMS);
-        let mut sampler = Sampler::new((0.0, 0.0));
+        let mut sampler = Sampler::new([0.0; 3]);
         let mut hist = Histogram::new(side, side);
         let n = PARALLEL_MIN_STEPS * 2;
         sampler.step(&c, n, &mut hist, &View::default());
@@ -511,7 +515,7 @@ mod tests {
     #[test]
     fn estimated_bounds_contain_the_attractor() {
         let h = HenonAttractor::from_params(&[1.4, 0.3]);
-        let mut sampler = Sampler::new((0.0, 0.0));
+        let mut sampler = Sampler::new([0.0; 3]);
         let mut hist = Histogram::new(64, 64);
         sampler.step(&h, 1_000_000, &mut hist, &View::default());
         let b = sampler.estimated_bounds.unwrap();
@@ -525,7 +529,7 @@ mod tests {
 
     #[test]
     fn reset_after_escaping_restarts_from_the_start() {
-        let mut sampler = Sampler::new((0.0, 0.0));
+        let mut sampler = Sampler::new([0.0; 3]);
         let mut hist = Histogram::new(16, 16);
         sampler.step(
             &HenonAttractor::from_params(&[3.0, 0.3]),
@@ -533,7 +537,7 @@ mod tests {
             &mut hist,
             &View::default(),
         );
-        assert!(!sampler.positions[0].0.is_finite() || sampler.positions[0].0.abs() > ESCAPED);
+        assert!(!alive(&sampler.positions[0]));
         sampler.reset();
         hist.clear();
         sampler.step(

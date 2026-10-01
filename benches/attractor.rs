@@ -61,7 +61,7 @@ fn formula_only_500k(bencher: divan::Bencher) {
     bencher.bench_local(|| {
         let (mut x, mut y) = (0.0, 0.0);
         for _ in 0..500_000 {
-            (x, y) = c.next(divan::black_box(x), y);
+            [x, y, _] = c.next([divan::black_box(x), y, 0.0]);
         }
         (x, y)
     });

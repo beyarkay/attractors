@@ -38,7 +38,7 @@ fn starts(c: &CliffordAttractor, threads: usize) -> Vec<(f64, f64)> {
         .map(|i| {
             let (mut x, mut y) = (i as f64 * 1e-3, 0.0);
             for _ in 0..20_000 {
-                (x, y) = c.next(x, y);
+                [x, y, _] = c.next([x, y, 0.0]);
             }
             (x, y)
         })
@@ -67,7 +67,7 @@ fn formula_only(bencher: divan::Bencher, threads: usize) {
                 s.spawn(move || {
                     let (mut x, mut y) = (x0, y0);
                     for _ in 0..STEPS / threads {
-                        (x, y) = c.next(divan::black_box(x), y);
+                        [x, y, _] = c.next([divan::black_box(x), y, 0.0]);
                     }
                     (x, y)
                 });
@@ -88,7 +88,7 @@ fn shared_atomic_counts(bencher: divan::Bencher, threads: usize) {
                 s.spawn(move || {
                     let (mut x, mut y) = (x0, y0);
                     for _ in 0..STEPS / threads {
-                        (x, y) = c.next(x, y);
+                        [x, y, _] = c.next([x, y, 0.0]);
                         if let Some(i) = pixel(c, x, y) {
                             counts[i].fetch_add(1, Ordering::Relaxed);
                         }
@@ -112,7 +112,7 @@ fn per_thread_counts_then_merge(bencher: divan::Bencher, threads: usize) {
                 s.spawn(move || {
                     let (mut x, mut y) = (x0, y0);
                     for _ in 0..STEPS / threads {
-                        (x, y) = c.next(x, y);
+                        [x, y, _] = c.next([x, y, 0.0]);
                         if let Some(i) = pixel(c, x, y) {
                             local[i] += 1;
                         }
@@ -152,7 +152,7 @@ fn formula_only_5m(bencher: divan::Bencher, threads: usize) {
                 s.spawn(move || {
                     let (mut x, mut y) = (x0, y0);
                     for _ in 0..10 * STEPS / threads {
-                        (x, y) = c.next(divan::black_box(x), y);
+                        [x, y, _] = c.next([divan::black_box(x), y, 0.0]);
                     }
                     (x, y)
                 });
@@ -176,7 +176,7 @@ fn formula_only_5m_work_queue(bencher: divan::Bencher, threads: usize) {
                     let (mut x, mut y) = (x0, y0);
                     while next_piece.fetch_add(1, Ordering::Relaxed) < PIECES {
                         for _ in 0..10 * STEPS / PIECES {
-                            (x, y) = c.next(divan::black_box(x), y);
+                            [x, y, _] = c.next([divan::black_box(x), y, 0.0]);
                         }
                     }
                     (x, y)
