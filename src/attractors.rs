@@ -15,6 +15,7 @@
 /// - [Yu-Wang Attractors](http://paulbourke.net/fractals/yuwang/)
 use std::fmt::{self, Display};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Mutex;
 use std::thread;
 
 /// Which part of the attractor's bounding box is drawn, and how much empty border surrounds it.
@@ -84,73 +85,138 @@ pub trait Attractor: Sync {
     /// A box `(xmin, xmax, ymin, ymax)` guaranteed to contain every point of the attractor.
     fn bounds(&self) -> (f64, f64, f64, f64);
 
-    fn position(&self) -> (f64, f64);
-
-    fn set_position(&mut self, x: f64, y: f64);
-
     /// One application of the attractor's formula.
     fn next(&self, x: f64, y: f64) -> (f64, f64);
+}
 
-    /// Take `num_steps` steps, counting each point in `hist`.
-    ///
-    /// Large step counts are split across all cores. Each extra thread follows its own
-    /// trajectory, starting from a slightly nudged copy of the current position.
-    fn step(&mut self, num_steps: usize, hist: &mut Histogram, view: &View)
-    where
-        Self: Sized,
-    {
-        let mapping = PixelMapping::new(self.bounds(), view, hist.width, hist.height);
-        let threads = if num_steps < PARALLEL_MIN_STEPS {
-            1
-        } else {
-            num_threads()
-        };
+/// Fewer steps than this run on the calling thread, where spawning threads would cost more
+/// than it saves
+const PARALLEL_MIN_STEPS: usize = 100_000;
+/// Uncounted steps each walker takes after `Sampler::reset`, so slow transients aren't drawn
+pub const WARMUP_STEPS: usize = 20_000;
+/// More walkers than threads lets fast cores run more walkers than slow ones
+const WALKERS_PER_THREAD: usize = 2;
+
+pub fn num_threads() -> usize {
+    thread::available_parallelism().map_or(1, |n| n.get())
+}
+
+/// Several independent trajectories ("walkers") that together sample an attractor.
+///
+/// Walkers keep their positions between calls to `step`, so once warmed up the result is the
+/// same as adding together several long single-core runs. Each walker takes a fixed share of
+/// every call's steps, so the output doesn't depend on thread scheduling. Threads take whole
+/// walkers from a queue, so slower cores simply run fewer of them.
+#[derive(Debug, Clone)]
+pub struct Sampler {
+    positions: Vec<(f64, f64)>,
+    needs_warmup: bool,
+}
+
+impl Default for Sampler {
+    fn default() -> Self {
+        Sampler::new(WALKERS_PER_THREAD * num_threads(), (0.0, 0.0))
+    }
+}
+
+impl Sampler {
+    pub fn new(walkers: usize, start: (f64, f64)) -> Self {
+        assert!(walkers > 0);
+        Sampler {
+            positions: vec![start; walkers],
+            needs_warmup: true,
+        }
+    }
+
+    /// Call after changing the attractor's parameters. Walkers restart, slightly nudged apart,
+    /// from where the first walker was, and warm up again before anything is counted.
+    pub fn reset(&mut self) {
+        let start = self.positions[0];
+        self.positions.fill(start);
+        self.needs_warmup = true;
+    }
+
+    /// Take `num_steps` steps in total across all walkers, counting each point in `hist`.
+    pub fn step<A: Attractor>(
+        &mut self,
+        attractor: &A,
+        num_steps: usize,
+        hist: &mut Histogram,
+        view: &View,
+    ) {
+        if self.needs_warmup {
+            self.needs_warmup = false;
+            let start = self.positions[0];
+            self.for_each_walker(true, |i, pos| {
+                let (mut x, mut y) = (start.0 + i as f64 * 1e-3, start.1);
+                for _ in 0..WARMUP_STEPS {
+                    (x, y) = attractor.next(x, y);
+                }
+                *pos = (x, y);
+                0
+            });
+        }
+
+        let mapping = PixelMapping::new(attractor.bounds(), view, hist.width, hist.height);
         // SAFETY: AtomicU32 has the same in-memory representation as u32, and `hist.counts` is
         // exclusively borrowed for as long as `counts` is used.
         let counts: &[AtomicU32] =
             unsafe { &*(hist.counts.as_mut_slice() as *mut [u32] as *const [AtomicU32]) };
-        let start = self.position();
-        let this = &*self;
-        let walk = |thread_idx: usize| {
-            let n = num_steps / threads + usize::from(thread_idx < num_steps % threads);
-            let (mut x, mut y) = (start.0 + thread_idx as f64 * 1e-3, start.1);
-            if thread_idx > 0 {
-                for _ in 0..WARMUP_STEPS {
-                    (x, y) = this.next(x, y);
-                }
-            }
+        let walkers = self.positions.len();
+        let max = self.for_each_walker(num_steps >= PARALLEL_MIN_STEPS, |i, pos| {
+            let share = num_steps / walkers + usize::from(i < num_steps % walkers);
+            let (mut x, mut y) = *pos;
             let mut max = 0;
-            for _ in 0..n {
-                (x, y) = this.next(x, y);
+            for _ in 0..share {
+                (x, y) = attractor.next(x, y);
                 if let Some(idx) = mapping.index(x, y) {
                     max = max.max(counts[idx].fetch_add(1, Ordering::Relaxed) + 1);
                 }
             }
-            ((x, y), max)
-        };
-        let results: Vec<((f64, f64), u32)> = if threads == 1 {
-            vec![walk(0)]
-        } else {
-            thread::scope(|s| {
-                let handles: Vec<_> = (0..threads).map(|i| s.spawn(move || walk(i))).collect();
-                handles.into_iter().map(|h| h.join().unwrap()).collect()
-            })
-        };
+            *pos = (x, y);
+            max
+        });
         // Counts only increase, so the largest value any increment produced is the new max
-        hist.max = results.iter().map(|r| r.1).fold(hist.max, u32::max);
+        hist.max = hist.max.max(max);
         hist.steps += num_steps;
-        let (x, y) = results[0].0;
-        self.set_position(x, y);
     }
-}
 
-/// Fewer steps than this run on one thread, where spawning threads would cost more than it saves
-const PARALLEL_MIN_STEPS: usize = 100_000;
-/// Uncounted steps for each extra thread, so its trajectory has diverged from thread 0's
-const WARMUP_STEPS: usize = 100;
-
-pub fn num_threads() -> usize {
-    thread::available_parallelism().map_or(1, |n| n.get())
+    /// Run `walk(walker index, walker position)` for every walker, returning the largest result.
+    fn for_each_walker<F>(&mut self, parallel: bool, walk: F) -> u32
+    where
+        F: Fn(usize, &mut (f64, f64)) -> u32 + Sync,
+    {
+        if !parallel {
+            return self
+                .positions
+                .iter_mut()
+                .enumerate()
+                .map(|(i, pos)| walk(i, pos))
+                .fold(0, u32::max);
+        }
+        let threads = num_threads().min(self.positions.len());
+        let queue = Mutex::new(self.positions.iter_mut().enumerate());
+        thread::scope(|s| {
+            let handles: Vec<_> = (0..threads)
+                .map(|_| {
+                    s.spawn(|| {
+                        let mut max = 0;
+                        loop {
+                            // Separate statement so the lock is released before walking
+                            let next = queue.lock().unwrap().next();
+                            let Some((i, pos)) = next else { break };
+                            max = max.max(walk(i, pos));
+                        }
+                        max
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap())
+                .fold(0, u32::max)
+        })
+    }
 }
 
 /// Maps attractor coordinates to histogram indices for a given view.
@@ -236,8 +302,6 @@ pub struct CliffordAttractor {
     pub b: f64,
     pub c: f64,
     pub d: f64,
-    pub x: f64,
-    pub y: f64,
 }
 
 impl Attractor for CliffordAttractor {
@@ -246,14 +310,7 @@ impl Attractor for CliffordAttractor {
 
     fn new(params: [f64; 4]) -> Self {
         let [a, b, c, d] = params;
-        CliffordAttractor {
-            a,
-            b,
-            c,
-            d,
-            x: 0.0,
-            y: 0.0,
-        }
+        CliffordAttractor { a, b, c, d }
     }
 
     fn params(&self) -> [f64; 4] {
@@ -276,15 +333,6 @@ impl Attractor for CliffordAttractor {
             -1.0 - self.d.abs(),
             1.0 + self.d.abs(),
         )
-    }
-
-    fn position(&self) -> (f64, f64) {
-        (self.x, self.y)
-    }
-
-    fn set_position(&mut self, x: f64, y: f64) {
-        self.x = x;
-        self.y = y;
     }
 
     #[inline(always)]
@@ -319,8 +367,6 @@ pub struct DeJongAttractor {
     pub b: f64,
     pub c: f64,
     pub d: f64,
-    pub x: f64,
-    pub y: f64,
 }
 
 impl Attractor for DeJongAttractor {
@@ -329,14 +375,7 @@ impl Attractor for DeJongAttractor {
 
     fn new(params: [f64; 4]) -> Self {
         let [a, b, c, d] = params;
-        DeJongAttractor {
-            a,
-            b,
-            c,
-            d,
-            x: 0.0,
-            y: 0.0,
-        }
+        DeJongAttractor { a, b, c, d }
     }
 
     fn params(&self) -> [f64; 4] {
@@ -353,15 +392,6 @@ impl Attractor for DeJongAttractor {
 
     fn bounds(&self) -> (f64, f64, f64, f64) {
         (-2.0, 2.0, -2.0, 2.0)
-    }
-
-    fn position(&self) -> (f64, f64) {
-        (self.x, self.y)
-    }
-
-    fn set_position(&mut self, x: f64, y: f64) {
-        self.x = x;
-        self.y = y;
     }
 
     #[inline(always)]
@@ -392,12 +422,13 @@ mod tests {
 
     #[test]
     fn step_takes_exactly_n_steps() {
-        let mut c = CliffordAttractor::new(PARAMS);
+        let c = CliffordAttractor::new(PARAMS);
+        let mut sampler = Sampler::default();
         let mut hist = Histogram::new(10, 10);
-        c.step(1, &mut hist, &View::default());
+        sampler.step(&c, 1, &mut hist, &View::default());
         assert_eq!(hist.steps, 1);
-        assert_eq!(c.position(), CliffordAttractor::new(PARAMS).next(0.0, 0.0));
-        c.step(1000, &mut hist, &View::default());
+        assert_eq!(hist.counts.iter().sum::<u32>(), 1);
+        sampler.step(&c, 1000, &mut hist, &View::default());
         assert_eq!(hist.steps, 1001);
         assert_eq!(hist.counts.iter().map(|&n| n as usize).sum::<usize>(), 1001);
     }
@@ -414,7 +445,7 @@ mod tests {
     #[test]
     fn point_on_the_far_edge_with_no_border_stays_in_bounds() {
         // Always lands on (1, 1), and panning by -1 puts that exactly on the far edge
-        let mut c = CliffordAttractor::new([0.0, 0.0, 1.0, 1.0]);
+        let c = CliffordAttractor::new([0.0, 0.0, 1.0, 1.0]);
         let mut hist = Histogram::new(7, 5);
         let view = View {
             border: 0.0,
@@ -422,17 +453,18 @@ mod tests {
             vpan: -1.0,
             zoom: 1.0,
         };
-        c.step(10, &mut hist, &view);
+        Sampler::default().step(&c, 10, &mut hist, &view);
         assert_eq!(hist.counts[7 * 5 - 1], 10);
     }
 
     #[test]
     fn parallel_step_counts_every_point_and_tracks_max() {
-        let mut c = CliffordAttractor::new(PARAMS);
+        let c = CliffordAttractor::new(PARAMS);
+        let mut sampler = Sampler::default();
         let mut hist = Histogram::new(64, 64);
         let n = PARALLEL_MIN_STEPS * 3 + 7;
-        c.step(n, &mut hist, &View::default());
-        c.step(n, &mut hist, &View::default());
+        sampler.step(&c, n, &mut hist, &View::default());
+        sampler.step(&c, n, &mut hist, &View::default());
         assert_eq!(hist.steps, 2 * n);
         assert_eq!(
             hist.counts.iter().map(|&n| n as usize).sum::<usize>(),
@@ -442,14 +474,28 @@ mod tests {
     }
 
     #[test]
+    fn parallel_step_is_deterministic() {
+        let c = CliffordAttractor::new(PARAMS);
+        let render = || {
+            let mut sampler = Sampler::default();
+            let mut hist = Histogram::new(64, 64);
+            for _ in 0..3 {
+                sampler.step(&c, PARALLEL_MIN_STEPS * 2, &mut hist, &View::default());
+            }
+            hist.counts
+        };
+        assert_eq!(render(), render());
+    }
+
+    #[test]
     fn view_far_away_counts_nothing() {
-        let mut c = CliffordAttractor::new(PARAMS);
+        let c = CliffordAttractor::new(PARAMS);
         let mut hist = Histogram::new(10, 10);
         let view = View {
             hpan: 1000.0,
             ..View::default()
         };
-        c.step(1000, &mut hist, &view);
+        Sampler::default().step(&c, 1000, &mut hist, &view);
         assert_eq!(hist.max, 0);
         assert_eq!(hist.steps, 1000);
     }

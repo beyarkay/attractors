@@ -62,7 +62,7 @@ fn paper_size(name: &str) -> Option<(usize, usize)> {
     }
 }
 
-fn run_headless<A: Attractor + Clone>(filename: &str, paper: &str) {
+fn run_headless<A: Attractor>(filename: &str, paper: &str) {
     let Some(size) = paper_size(paper) else {
         eprintln!("Unknown paper size `{paper}`, expected one of A0 to A5");
         return;
@@ -96,6 +96,7 @@ fn run_headless<A: Attractor + Clone>(filename: &str, paper: &str) {
 
 struct State<A> {
     attractor: A,
+    sampler: Sampler,
     hist: Histogram,
     view: View,
     specials: Vec<[f64; 4]>,
@@ -111,13 +112,14 @@ struct State<A> {
 impl<A: Attractor + Display> State<A> {
     fn restart(&mut self) {
         self.hist.clear();
-        self.attractor
-            .step(MIN_NUM_STEPS, &mut self.hist, &self.view);
+        self.sampler
+            .step(&self.attractor, MIN_NUM_STEPS, &mut self.hist, &self.view);
     }
 
     fn set_params(&mut self, params: [Option<f64>; 4]) {
         self.attractor.set_params(params);
         println!("{:#}", self.attractor);
+        self.sampler.reset();
         self.restart();
     }
 
@@ -169,7 +171,7 @@ fn nudge_command<A>(
     }
 }
 
-fn commands<A: Attractor + Clone + Display>() -> Vec<Command<A>> {
+fn commands<A: Attractor + Display>() -> Vec<Command<A>> {
     vec![
         nudge_command(Key::J, nudge::<A, 0, false>, "a -= delta"),
         nudge_command(Key::K, nudge::<A, 1, false>, "b -= delta"),
@@ -287,7 +289,7 @@ fn commands<A: Attractor + Clone + Display>() -> Vec<Command<A>> {
             description: "Run more simulation steps",
             action: |s, _| {
                 let steps = ((1_000_000.0 * s.delta) as usize).clamp(1_000, 100_000_000);
-                s.attractor.step(steps, &mut s.hist, &s.view);
+                s.sampler.step(&s.attractor, steps, &mut s.hist, &s.view);
                 println!("Currently at {} steps", s.hist.steps);
             },
         },
@@ -304,7 +306,7 @@ fn commands<A: Attractor + Clone + Display>() -> Vec<Command<A>> {
     ]
 }
 
-fn run_interactively<A: Attractor + Clone + Display>() {
+fn run_interactively<A: Attractor + Display>() {
     let specials = load_specials::<A>();
     let params = if specials.is_empty() {
         A::DEFAULT_PARAMS
@@ -313,6 +315,7 @@ fn run_interactively<A: Attractor + Clone + Display>() {
     };
     let mut state = State {
         attractor: A::new(params),
+        sampler: Sampler::default(),
         hist: Histogram::new(WIDTH, HEIGHT),
         view: View::default(),
         specials,
@@ -346,9 +349,12 @@ fn run_interactively<A: Attractor + Clone + Display>() {
     let mut map_buf = vec![0u32; MAP_WIDTH * MAP_HEIGHT];
     while window.is_open() && !window.is_key_down(Key::Escape) {
         if state.hist.steps < MAX_PREVIEW_STEPS {
-            state
-                .attractor
-                .step(MIN_NUM_STEPS, &mut state.hist, &state.view);
+            state.sampler.step(
+                &state.attractor,
+                MIN_NUM_STEPS,
+                &mut state.hist,
+                &state.view,
+            );
         }
         blend_and_colour(
             &state.hist,

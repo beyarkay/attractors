@@ -12,12 +12,12 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use attractors::render::write_png;
-use attractors::{format_params, parse_params, Attractor, CliffordAttractor, Histogram, View};
+use attractors::{
+    format_params, parse_params, Attractor, CliffordAttractor, Histogram, Sampler, View,
+};
 
 const SIZE: usize = 400;
 const POWER: f64 = 0.15;
-/// Below the multi-core threshold, so each call runs one trajectory on one thread
-const SEQUENTIAL_CHUNK: usize = 50_000;
 const CHECKPOINTS: usize = 4;
 
 fn tv_distance(a: &Histogram, b: &Histogram) -> f64 {
@@ -36,33 +36,23 @@ fn tv_distance(a: &Histogram, b: &Histogram) -> f64 {
 
 struct Run {
     attractor: CliffordAttractor,
+    sampler: Sampler,
     hist: Histogram,
-    parallel: bool,
 }
 
 impl Run {
-    fn new(params: [f64; 4], start: (f64, f64), parallel: bool) -> Self {
-        let mut attractor = CliffordAttractor::new(params);
-        attractor.set_position(start.0, start.1);
+    /// `None` uses the default multi-core sampler, otherwise one trajectory from `start`
+    fn new(params: [f64; 4], start: Option<(f64, f64)>) -> Self {
         Run {
-            attractor,
+            attractor: CliffordAttractor::new(params),
+            sampler: start.map_or_else(Sampler::default, |s| Sampler::new(1, s)),
             hist: Histogram::new(SIZE, SIZE),
-            parallel,
         }
     }
 
     fn advance(&mut self, steps: usize) {
-        let view = View::default();
-        if self.parallel {
-            self.attractor.step(steps, &mut self.hist, &view);
-        } else {
-            let mut done = 0;
-            while done < steps {
-                let n = SEQUENTIAL_CHUNK.min(steps - done);
-                self.attractor.step(n, &mut self.hist, &view);
-                done += n;
-            }
-        }
+        self.sampler
+            .step(&self.attractor, steps, &mut self.hist, &View::default());
     }
 }
 
@@ -92,9 +82,9 @@ fn main() {
 
     for (idx, &params) in chosen.iter().enumerate() {
         let mut runs = [
-            Run::new(params, (0.0, 0.0), false),
-            Run::new(params, (1.3, -0.7), false),
-            Run::new(params, (0.0, 0.0), true),
+            Run::new(params, Some((0.0, 0.0))),
+            Run::new(params, Some((1.3, -0.7))),
+            Run::new(params, None),
         ];
         let mut done = 0;
         let mut cells = String::new();

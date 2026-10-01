@@ -6,7 +6,7 @@ use std::thread;
 
 use colorous::Gradient;
 
-use crate::attractors::{format_params, num_threads, Attractor, Histogram, View};
+use crate::attractors::{format_params, num_threads, Attractor, Histogram, Sampler, View};
 
 const GRADIENT: Gradient = colorous::TURBO;
 
@@ -68,9 +68,9 @@ pub fn blend_and_colour(
 
 /// Render `attractor` at `size` into a PNG inside `directory`, returning the file path.
 ///
-/// Works on a copy of the attractor, so the caller's attractor is not advanced. Rows are streamed
+/// Uses its own walkers, so the caller's sampler is not advanced. Rows are streamed
 /// to the encoder, so memory is one `u32` per pixel.
-pub fn save_png<A: Attractor + Clone>(
+pub fn save_png<A: Attractor>(
     attractor: &A,
     size: (usize, usize),
     view: &View,
@@ -80,12 +80,17 @@ pub fn save_png<A: Attractor + Clone>(
     let (width, height) = size;
     let total_steps = (width as f64 * height as f64 * SAVE_STEPS_PER_PIXEL) as usize;
     let mut hist = Histogram::new(width, height);
-    let mut attractor = attractor.clone();
+    let mut sampler = Sampler::default();
 
     let chunk = 10_000_000;
     print!("Stepping {total_steps} times ");
     while hist.steps < total_steps {
-        attractor.step(chunk.min(total_steps - hist.steps), &mut hist, view);
+        sampler.step(
+            attractor,
+            chunk.min(total_steps - hist.steps),
+            &mut hist,
+            view,
+        );
         print!(".");
         io::stdout().flush()?;
     }
