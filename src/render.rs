@@ -6,7 +6,8 @@ use std::thread;
 
 use colorous::Gradient;
 
-use crate::attractors::{format_params, num_threads, Attractor, Histogram, Sampler, View};
+use crate::attractors::{format_params, Attractor};
+use crate::sampler::{num_threads, Histogram, Sampler, View};
 
 const GRADIENT: Gradient = colorous::TURBO;
 
