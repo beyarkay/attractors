@@ -1,0 +1,17 @@
+#!/usr/bin/env zsh
+# Lint, format and test. Fixable problems are fixed in the working tree, then the commit is
+# stopped so the fixes can be reviewed and staged.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+if ! cargo fmt --all --check >/dev/null; then
+    cargo fmt --all
+    echo "pre-commit: reformatted files with cargo fmt, review and re-stage them" >&2
+    exit 1
+fi
+if ! cargo clippy --all-targets -q -- -D warnings; then
+    cargo clippy --all-targets --fix --allow-dirty --allow-staged -q || true
+    echo "pre-commit: clippy failed, applied any automatic fixes, review and re-stage them" >&2
+    exit 1
+fi
+cargo test -q
