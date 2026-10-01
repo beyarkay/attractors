@@ -8,313 +8,235 @@
 /// - [Juan Attractors](http://paulbourke.net/fractals/juan2/)
 /// - [Den Tsucs Attractors](http://paulbourke.net/fractals/tsucs/)
 /// - [Sánchez 'Bad Hairday' Attractors](http://paulbourke.net/fractals/2dmap/), also see
-/// [here](https://www.r-bloggers.com/2019/10/strange-attractors-an-r-experiment-about-maths-recursivity-and-creative-coding/)
+///   [here](https://www.r-bloggers.com/2019/10/strange-attractors-an-r-experiment-about-maths-recursivity-and-creative-coding/)
 /// - [Arneodo Attractors](http://paulbourke.net/fractals/arneodo/)
 /// - [Catrián Attractors](http://paulbourke.net/fractals/JuanCatrian/)
 /// - [Burke-Shaw Attractors](http://paulbourke.net/fractals/burkeshaw/)
 /// - [Yu-Wang Attractors](http://paulbourke.net/fractals/yuwang/)
-use std::{
-    fmt::{self, Display},
-    io::Write,
-};
+use std::fmt::{self, Display};
+
+/// Which part of the attractor's bounding box is drawn, and how much empty border surrounds it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct View {
+    /// Fraction of the width/height left empty on each side.
+    pub border: f64,
+    pub hpan: f64,
+    pub vpan: f64,
+    /// 2.0 shows the middle half of the bounding box, 0.5 shows twice the bounding box.
+    pub zoom: f64,
+}
+
+impl Default for View {
+    fn default() -> Self {
+        View {
+            border: 0.05,
+            hpan: 0.0,
+            vpan: 0.0,
+            zoom: 1.0,
+        }
+    }
+}
+
+/// How many times the attractor landed on each pixel of a `width` x `height` grid, row-major.
+#[derive(Debug, Clone)]
+pub struct Histogram {
+    pub width: usize,
+    pub height: usize,
+    pub counts: Vec<u32>,
+    pub max: u32,
+    /// Every step taken into this histogram, including ones that landed outside the view.
+    pub steps: usize,
+}
+
+impl Histogram {
+    pub fn new(width: usize, height: usize) -> Self {
+        Histogram {
+            width,
+            height,
+            counts: vec![0; width * height],
+            max: 0,
+            steps: 0,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.counts.fill(0);
+        self.max = 0;
+        self.steps = 0;
+    }
+
+    /// Fill `out` with each pixel's count divided by the maximum count, so values are in [0, 1].
+    /// An empty histogram gives all zeros.
+    pub fn normalise_into(&self, out: &mut [f64]) {
+        assert_eq!(out.len(), self.counts.len());
+        if self.max == 0 {
+            out.fill(0.0);
+            return;
+        }
+        let inv_max = 1.0 / self.max as f64;
+        for (o, &c) in out.iter_mut().zip(&self.counts) {
+            *o = c as f64 * inv_max;
+        }
+    }
+}
+
 pub trait Attractor {
-    /// A name for the attractor matching [a-zA-Z]+, used when saving a sequence of points to file
+    /// A name for the attractor matching [a-zA-Z]+
     const NAME: &'static str;
-    /// The number of dimensions the attractor lives in. Almost always 2 or 3.
-    const DIMENSIONALITY: u8;
-    /// The number of parameters required by the attractor.
-    const NUM_PARAMETERS: u8;
+    /// Parameters that give a nice-looking attractor
+    const DEFAULT_PARAMS: [f64; 4];
 
-    /// Create a new Attractor from the vector of parameters `params`.
-    fn new(params: Vec<f64>) -> Self;
+    fn new(params: [f64; 4]) -> Self;
 
-    /// Given an xy position, mutate x and y to be the next position based on the Attractor's
-    /// formula. Do this for `num_steps` steps, saving each step to `history`.
-    fn step(&mut self, num_steps: usize);
+    fn params(&self) -> [f64; 4];
 
-    /// Change the parameters of the Attractor.
-    ///
-    /// If an element in params is `None`, then that parameter will remain how it was. If an
-    /// element in `params` is `Some<f64>`, then that value will be unpacked into the corresponding
-    /// parameter.
-    fn set_params(&mut self, params: Vec<Option<f64>>);
+    /// `None` leaves that parameter unchanged.
+    fn set_params(&mut self, params: [Option<f64>; 4]);
 
-    fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64>;
+    /// A box `(xmin, xmax, ymin, ymax)` guaranteed to contain every point of the attractor.
+    fn bounds(&self) -> (f64, f64, f64, f64);
 
-    fn get_densities_with_border(
-        &mut self,
-        width: usize,
-        height: usize,
-        perc_border: f64,
-        hpan: f64,
-        vpan: f64,
-        zoom: f64,
-    ) -> Vec<f64>;
+    fn position(&self) -> (f64, f64);
 
-    fn reset(&mut self);
+    fn set_position(&mut self, x: f64, y: f64);
 
-    /// Save the attractor to a file.
-    ///
-    /// The attractor's name, it's parameters, and every coordinate taken so far is saved to the
-    /// directory named `directory` as a filename determined by the parameters of the attractor to
-    /// allow for computer-based retrieval.
-    ///
-    /// The format of the file is in plain text like:
-    /// ```
-    /// #<NAME>,<NUM_PARAMETERS>,<NUM_DIMENSIONS>
-    /// #<NAME_OF_PARAMETER_1>=<VALUE_OF_PARAMETER_1>
-    /// ...
-    /// #<NAME_OF_PARAMETER_n>=<VALUE_OF_PARAMETER_n>
-    /// 0:<X_POSITION>,<Y_POSITION>,<Z_POSITION>
-    /// 1:<X_POSITION>,<Y_POSITION>,<Z_POSITION>
-    /// 2:<X_POSITION>,<Y_POSITION>,<Z_POSITION>
-    /// 3:<X_POSITION>,<Y_POSITION>,<Z_POSITION>
-    /// ...
-    /// ```
-    /// Where the z-position is only included for 3-dimensional attractors. These files are
-    /// designed to be human-readable for debug purposes.
-    fn to_file(&mut self, directory: String);
+    /// One application of the attractor's formula.
+    fn next(&self, x: f64, y: f64) -> (f64, f64);
+
+    /// Take `num_steps` steps from the current position, counting each point in `hist`.
+    fn step(&mut self, num_steps: usize, hist: &mut Histogram, view: &View) {
+        let (xmin, xmax, ymin, ymax) = self.bounds();
+        let xrange = (xmax - xmin) / view.zoom;
+        let yrange = (ymax - ymin) / view.zoom;
+        let zoomed_xmin = xmin + (xmax - xmin) * 0.5 + view.hpan - xrange * 0.5;
+        let zoomed_ymin = ymin + (ymax - ymin) * 0.5 + view.vpan - yrange * 0.5;
+
+        let (w, h) = (hist.width, hist.height);
+        let non_border_frac = 1.0 - 2.0 * view.border;
+        let x_scale = w as f64 * non_border_frac;
+        let y_scale = h as f64 * non_border_frac;
+        let x_offset = w as f64 * view.border;
+        let y_offset = h as f64 * view.border;
+
+        let (mut x, mut y) = self.position();
+        let mut max = hist.max;
+        for _ in 0..num_steps {
+            (x, y) = self.next(x, y);
+            let normed_x = (x - zoomed_xmin) / xrange;
+            let normed_y = (y - zoomed_ymin) / yrange;
+            // Written so that NaN is also skipped
+            if !((0.0..=1.0).contains(&normed_x) && (0.0..=1.0).contains(&normed_y)) {
+                continue;
+            }
+            let px = ((normed_x * x_scale + x_offset) as usize).min(w - 1);
+            let py = ((normed_y * y_scale + y_offset) as usize).min(h - 1);
+            let count = &mut hist.counts[px + py * w];
+            *count += 1;
+            max = max.max(*count);
+        }
+        hist.max = max;
+        hist.steps += num_steps;
+        self.set_position(x, y);
+    }
+}
+
+/// Parse a line like `a=1.0,b=-2.0,c=0.5,d=0.1`. Extra comma-separated fields are ignored.
+pub fn parse_params(line: &str) -> Option<[f64; 4]> {
+    let mut fields = line.split(',');
+    let mut params = [0.0; 4];
+    for (param, name) in params.iter_mut().zip(["a", "b", "c", "d"]) {
+        let (key, value) = fields.next()?.split_once('=')?;
+        if key.trim() != name {
+            return None;
+        }
+        *param = value.trim().parse().ok()?;
+    }
+    Some(params)
+}
+
+pub fn format_params(params: [f64; 4]) -> String {
+    format!(
+        "a={},b={},c={},d={}",
+        params[0], params[1], params[2], params[3]
+    )
 }
 
 /// A Clifford Attractor, as discovered by [Clifford A
 /// Pickover](https://en.wikipedia.org/wiki/Clifford_A._Pickover)
 ///
-/// The parameters a, b, c, d are all used in the formula for the attractor, which takes in one xy
-/// position and returns a new xy position. Repeatedly doing this operation leads to the Clifford
-/// attractor. The formula is:
-/// ```
+/// ```text
 /// x_new = sin(a * y) + c * cos(a * x)
 /// y_new = sin(b * x) + d * cos(b * y)
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CliffordAttractor {
-    /// Parameter a is only used in calculating the new x value.
     pub a: f64,
-    /// Parameter b is only used in calculating the new y value.
     pub b: f64,
-    /// Parameter c roughly dictates the min and max x values.
     pub c: f64,
-    /// Parameter d roughly dictates the min and max y values.
     pub d: f64,
-    /// The current x value.
     pub x: f64,
-    /// The current y value.
     pub y: f64,
-    /// The minimum x value, calculated as: `min(sin()) - |c| * min(cos()) == -1.0 - c.abs()`
-    xmin: f64,
-    /// The maximum x value, calculated as: `max(sin()) + |c| * max(cos()) ==  1.0 + c.abs()`
-    xmax: f64,
-    /// The minimum y value, calculated as: `min(sin()) - |d| * min(cos()) == -1.0 - d.abs()`
-    ymin: f64,
-    /// The maximum y value, calculated as: `max(sin()) + |d| * max(cos()) ==  1.0 + d.abs()`
-    ymax: f64,
-    /// Store all the previously visited points in the history vector
-    pub history: Vec<Vec<f64>>,
-    /// Store all previous parameter values in the param history
-    pub param_history: Vec<Vec<f64>>,
 }
 
 impl Attractor for CliffordAttractor {
-    /// The name used to specify the attractor in text files.
     const NAME: &'static str = "clifford";
-    /// Clifford attractors live in 2 dimensions.
-    const DIMENSIONALITY: u8 = 2;
-    /// Clifford attractors require 4 parameters.
-    const NUM_PARAMETERS: u8 = 4;
+    const DEFAULT_PARAMS: [f64; 4] = [-1.4, 1.6, 1.0, 0.7];
 
-    fn new(params: Vec<f64>) -> Self {
-        assert!(
-            params.len() == 4,
-            "Clifford Attractors require 4 parameters (a, b, c, d) but you only gave {}",
-            params.len()
-        );
-
+    fn new(params: [f64; 4]) -> Self {
+        let [a, b, c, d] = params;
         CliffordAttractor {
-            // Create a new Clifford attractor from the vector of parameters `params`
-            a: params[0],
-            b: params[1],
-            c: params[2],
-            d: params[3],
+            a,
+            b,
+            c,
+            d,
             x: 0.0,
             y: 0.0,
-            xmin: -1.0 - params[2].abs(), // min(sin()) - |c| * min(cos())
-            xmax: 1.0 + params[2].abs(),  // max(sin()) + |c| * max(cos())
-            ymin: -1.0 - params[3].abs(), // min(sin()) - |d| * min(cos())
-            ymax: 1.0 + params[3].abs(),  // max(sin()) + |d| * max(cos())
-            history: vec![vec![0.0, 0.0]],
-            param_history: vec![params],
         }
     }
 
-    /// Given an xy position, mutate x and y to be the next position based on the Clifford attractor
-    /// formula:
-    /// ```
-    /// x_new = sin(a * y) + c * cos(a * x)
-    /// y_new = sin(b * x) + d * cos(b * y)
-    /// ```
-    /// The `num_steps` variable determines how many times this recurrent equation is evaluated. The x
-    /// and y values for each individual iteration can be retrieved from the `.history` vector
-    /// variable.
-    fn step(&mut self, num_steps: usize) {
-        let mut xx = self.x.clone();
-        let mut yy = self.y.clone();
-        for _ in 1..num_steps {
-            xx = (self.a * yy).sin() + self.c * (self.a * xx).cos();
-            yy = (self.b * xx).sin() + self.d * (self.b * yy).cos();
-            self.history.push(vec![xx, yy]);
-        }
-        self.x = xx;
-        self.y = yy;
+    fn params(&self) -> [f64; 4] {
+        [self.a, self.b, self.c, self.d]
     }
 
-    fn reset(&mut self) {
-        self.history = vec![vec![0.0, 0.0]];
-        // self.param_history = vec![vec![self.a, self.b, self.c, self.d]];
+    fn set_params(&mut self, params: [Option<f64>; 4]) {
+        let [a, b, c, d] = params;
+        self.a = a.unwrap_or(self.a);
+        self.b = b.unwrap_or(self.b);
+        self.c = c.unwrap_or(self.c);
+        self.d = d.unwrap_or(self.d);
     }
 
-    /// Set the parameters a, b, c, d of the Clifford attractor and recalculate the x, y min and max
-    /// values as needed.
-    ///
-    /// A `Vec<Option<f64>>` is required, where the length of the vector must be
-    /// 4 If an item in the vector is `Some`, then that item will be set to the value of a, b, c,
-    /// or d based on the index of the item
-    fn set_params(&mut self, params: Vec<Option<f64>>) {
-        assert!(
-            params.len() == 4,
-            "Clifford Attractors require 4 parameters (a, b, c, d) but you only gave {}",
-            params.len()
-        );
-        // Go through each parameter and check if it needs to be updated
-        if let Some(a) = params[0] {
-            self.a = a;
-        }
-        if let Some(b) = params[1] {
-            self.b = b;
-        }
-        if let Some(c) = params[2] {
-            self.c = c;
-            // Recalculate the xmin and xmax values
-            self.xmin = -1.0 - c.abs();
-            self.xmax = 1.0 + c.abs();
-        }
-        if let Some(d) = params[3] {
-            self.d = d;
-            // Recalculate the ymin and ymax values
-            self.ymin = -1.0 - d.abs();
-            self.ymax = 1.0 + d.abs();
-        }
-        self.param_history
-            .push(vec![self.a, self.b, self.c, self.d]);
-        println!("{:#}", self);
+    fn bounds(&self) -> (f64, f64, f64, f64) {
+        // |sin| <= 1 and |c * cos| <= |c|
+        (
+            -1.0 - self.c.abs(),
+            1.0 + self.c.abs(),
+            -1.0 - self.d.abs(),
+            1.0 + self.d.abs(),
+        )
     }
 
-    /// Given a certain `width` and `height` in pixels, return the density of the
-    /// pixel at `index`, where `index` is equal to:
-    /// ```
-    ///     index = x_position + width * y_position
-    /// ```
-    ///
-    /// The returned density has been normalised to be in the range [0.0, 1.0]
-    /// where 1.0 indicates that pixel was the most frequently landed on, and
-    /// 0.0 indicates that pixel was never landed on.
-    // TODO: add padding argument to display the attractor on only part of the
-    // buffer
-    fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64> {
-        self.get_densities_with_border(width, height, 0.0, 0.0, 0.0, 1.0)
-    }
-    fn get_densities_with_border(
-        &mut self,
-        width: usize,
-        height: usize,
-        perc_border: f64,
-        hpan: f64,
-        vpan: f64,
-        zoom: f64,
-    ) -> Vec<f64> {
-        let xrange = self.xmax - self.xmin;
-        let yrange = self.ymax - self.ymin;
-        let xmidpoint = self.xmin + xrange * 0.5 + hpan;
-        let ymidpoint = self.ymin + yrange * 0.5 + vpan;
-
-        // a zoom level of XX is a range of YYY:
-        // - 2.0 => [0.25, 0.75]
-        // - 1.0 => [0, 1]
-        // - 0.5 => [-0.5, 1.5]
-        let zoomed_xrange = xrange / zoom;
-        let zoomed_xmin = xmidpoint - zoomed_xrange * 0.5;
-        let zoomed_xmax = xmidpoint + zoomed_xrange * 0.5;
-
-        let zoomed_yrange = yrange / zoom;
-        let zoomed_ymin = ymidpoint - zoomed_yrange * 0.5;
-        let zoomed_ymax = ymidpoint + zoomed_yrange * 0.5;
-
-        let mut densities = vec![0.0; width * height];
-        let mut densities_max = 0.0;
-
-        // First loop over the history, flooring all the values to find
-        // a histogram of how many times the attractor hit each xy point
-        for pos in self.history.iter() {
-            // If x or y is out of bounds, don't attempt to draw the point
-            let oob_y = pos[1] < zoomed_ymin || pos[1] > zoomed_ymax;
-            let oob_x = pos[0] < zoomed_xmin || pos[0] > zoomed_xmax;
-            if oob_y || oob_x {
-                continue;
-            }
-            // the normed values are in the range [0, 1]
-            let normed_xval = (pos[0] - zoomed_xmin) / zoomed_xrange;
-            let normed_yval = (pos[1] - zoomed_ymin) / zoomed_yrange;
-            // let normed_xval = (pos[0] - self.xmin) / xrange;
-            // let normed_yval = (pos[1] - self.ymin) / yrange;
-
-            let x_full = width as f64 * normed_xval;
-            let y_full = height as f64 * normed_yval;
-            let non_border_frac = 1.0 - 2.0 * perc_border;
-            let x = (x_full * non_border_frac + width as f64 * perc_border).floor() as usize;
-            let y = (y_full * non_border_frac + height as f64 * perc_border).floor() as usize;
-            let i = x + y * width;
-            densities[i] += 1.0;
-            if densities[i] > densities_max {
-                densities_max = densities[i];
-            }
-        }
-        // Then loop over it again, to divide each of the items in the densities
-        // by the maximum
-        for idx in &mut densities {
-            *idx /= densities_max;
-        }
-        densities
+    fn position(&self) -> (f64, f64) {
+        (self.x, self.y)
     }
 
-    /// Write the Clifford Attractor to the file named `filename`
-    fn to_file(&mut self, filename: String) {
-        let mut file = std::fs::File::create(filename).expect("Failed to create file.");
-        // The preamble contains various things defining the attractor in question, and every line
-        // in the preamble starts with a `#`
-        let preamble: String = format!(
-            "#{},{},{}\n#a={}\n#b={}\n#c={}\n#d={}\n",
-            CliffordAttractor::NAME,
-            CliffordAttractor::NUM_PARAMETERS,
-            CliffordAttractor::DIMENSIONALITY,
-            self.a,
-            self.b,
-            self.c,
-            self.d
-        );
-        file.write_all(preamble.as_bytes())
-            .expect("Failed to preamble write to file.");
-        for (i, item) in self.history.iter().enumerate() {
-            let position: String = format!("{}:{},{}\n", i, item[0], item[1]);
-            file.write_all(position.as_bytes())
-                .expect("Failed to write position to file.");
-        }
+    fn set_position(&mut self, x: f64, y: f64) {
+        self.x = x;
+        self.y = y;
+    }
+
+    #[inline(always)]
+    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+        (
+            (self.a * y).sin() + self.c * (self.a * x).cos(),
+            (self.b * x).sin() + self.d * (self.b * y).cos(),
+        )
     }
 }
 
 impl Display for CliffordAttractor {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Clifford Attractor (history={}, param_history={}):\n  x_new = sin({a:+.4} * y) + {c:+.4} * cos({a:+.4} * x);\n  y_new = sin({b:+.4} * x) + {d:+.4} * cos({b:+.4} * y)",
-        self.history.len(),
-        self.param_history.len(),
+        write!(f, "Clifford Attractor:\n  x_new = sin({a:+.4} * y) + {c:+.4} * cos({a:+.4} * x);\n  y_new = sin({b:+.4} * x) + {d:+.4} * cos({b:+.4} * y)",
         a=self.a,
         b=self.b,
         c=self.c,
@@ -324,175 +246,159 @@ impl Display for CliffordAttractor {
 }
 
 /// [De Jong Attractors](http://paulbourke.net/fractals/peterdejong/)
-/// The parameters a, b, c, d are all used in the formula for the attractor, which takes in one xy
-/// position and returns a new xy position. Repeatedly doing this operation leads to the De Jong
-/// attractor. The formula is:
+///
+/// ```text
+/// x_new = sin(a * y) - cos(b * x)
+/// y_new = sin(c * x) - cos(d * y)
 /// ```
-/// x_new = sin(a * y_old) - cos(b * x_old)
-/// y_new = sin(c * x_old) - cos(d * y_old)
-/// ```
-/// Which is similar to the Clifford Attractor, but without scaling constants on the second term.
+#[derive(Debug, Clone)]
 pub struct DeJongAttractor {
-    /// Parameter a
     pub a: f64,
-    /// Parameter b
     pub b: f64,
-    /// Parameter c
     pub c: f64,
-    /// Parameter d
     pub d: f64,
-    /// The current x value.
     pub x: f64,
-    /// The current y value.
     pub y: f64,
-    /// The minimum x value, which is always -2 for DeJong attractors
-    xmin: f64,
-    /// The maximum x value, which is always 2 for DeJong attractors
-    xmax: f64,
-    /// The minimum y value, which is always -2 for DeJong attractors
-    ymin: f64,
-    /// The maximum y value, which is always 2 for DeJong attractors
-    ymax: f64,
-    /// Store all the previously visited points in the history vector
-    pub history: Vec<Vec<f64>>,
 }
 
 impl Attractor for DeJongAttractor {
-    /// The name used to specify the attractor in text files.
     const NAME: &'static str = "dejong";
-    /// DeJong attractors live in 2 dimensions.
-    const DIMENSIONALITY: u8 = 2;
-    /// DeJong attractors require 4 parameters.
-    const NUM_PARAMETERS: u8 = 4;
+    const DEFAULT_PARAMS: [f64; 4] = [-2.0, -2.0, -1.2, 2.0];
 
-    fn new(params: Vec<f64>) -> Self {
-        assert!(
-            params.len() == 4,
-            "DeJong Attractors require 4 parameters (a, b, c, d) but you only gave {}",
-            params.len()
-        );
-
+    fn new(params: [f64; 4]) -> Self {
+        let [a, b, c, d] = params;
         DeJongAttractor {
-            // Create a new DeJong attractor from the vector of parameters `params`
-            a: params[0],
-            b: params[1],
-            c: params[2],
-            d: params[3],
+            a,
+            b,
+            c,
+            d,
             x: 0.0,
             y: 0.0,
-            xmin: -2.0, // min(sin()) - min(cos())
-            xmax: 2.0,  // max(sin()) + max(cos())
-            ymin: -2.0, // min(sin()) - min(cos())
-            ymax: 2.0,  // max(sin()) + max(cos())
-            history: vec![vec![0.0, 0.0]],
         }
     }
 
-    /// Given an xy position, mutate x and y to be the next position based on the DeJong attractor
-    /// formula:
-    /// ```
-    /// x_new = sin(a * y_old) - cos(b * x_old)
-    /// y_new = sin(c * x_old) - cos(d * y_old)
-    /// ```
-    /// The `num_steps` variable determines how many times this recurrent equation is evaluated. The x
-    /// and y values for each individual iteration can be retrieved from the `.history` vector
-    /// variable.
-    fn step(&mut self, num_steps: usize) {
-        for _ in 1..num_steps {
-            self.x = (self.a * self.y).sin() - (self.b * self.x).cos();
-            self.y = (self.c * self.x).sin() - (self.d * self.y).cos();
-            self.history.push(vec![self.x, self.y]);
-        }
+    fn params(&self) -> [f64; 4] {
+        [self.a, self.b, self.c, self.d]
     }
 
-    fn reset(&mut self) {
-        self.history = vec![vec![0.0, 0.0]];
+    fn set_params(&mut self, params: [Option<f64>; 4]) {
+        let [a, b, c, d] = params;
+        self.a = a.unwrap_or(self.a);
+        self.b = b.unwrap_or(self.b);
+        self.c = c.unwrap_or(self.c);
+        self.d = d.unwrap_or(self.d);
     }
 
-    /// Set the parameters a, b, c, d of the DeJong attractor and recalculate the x, y min and max
-    /// values as needed.
-    ///
-    /// A `Vec<Option<f64>>` is required, where the length of the vector must be
-    /// 4 If an item in the vector is `Some`, then that item will be set to the value of a, b, c,
-    /// or d based on the index of the item
-    fn set_params(&mut self, params: Vec<Option<f64>>) {
-        assert!(
-            params.len() == 4,
-            "DeJong Attractors require 4 parameters (a, b, c, d) but you only gave {}",
-            params.len()
+    fn bounds(&self) -> (f64, f64, f64, f64) {
+        (-2.0, 2.0, -2.0, 2.0)
+    }
+
+    fn position(&self) -> (f64, f64) {
+        (self.x, self.y)
+    }
+
+    fn set_position(&mut self, x: f64, y: f64) {
+        self.x = x;
+        self.y = y;
+    }
+
+    #[inline(always)]
+    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+        (
+            (self.a * y).sin() - (self.b * x).cos(),
+            (self.c * x).sin() - (self.d * y).cos(),
+        )
+    }
+}
+
+impl Display for DeJongAttractor {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "De Jong Attractor:\n  x_new = sin({a:+.4} * y) - cos({b:+.4} * x);\n  y_new = sin({c:+.4} * x) - cos({d:+.4} * y)",
+        a=self.a,
+        b=self.b,
+        c=self.c,
+        d=self.d,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PARAMS: [f64; 4] = [-1.4, 1.6, 1.0, 0.7];
+
+    #[test]
+    fn step_takes_exactly_n_steps() {
+        let mut c = CliffordAttractor::new(PARAMS);
+        let mut hist = Histogram::new(10, 10);
+        c.step(1, &mut hist, &View::default());
+        assert_eq!(hist.steps, 1);
+        assert_eq!(c.position(), CliffordAttractor::new(PARAMS).next(0.0, 0.0));
+        c.step(1000, &mut hist, &View::default());
+        assert_eq!(hist.steps, 1001);
+        assert_eq!(hist.counts.iter().map(|&n| n as usize).sum::<usize>(), 1001);
+    }
+
+    #[test]
+    fn clifford_y_uses_previous_x() {
+        let c = CliffordAttractor::new(PARAMS);
+        let (x, y) = (0.3, -0.2);
+        let (nx, ny) = c.next(x, y);
+        assert_eq!(nx, (-1.4 * y).sin() + 1.0 * (-1.4 * x).cos());
+        assert_eq!(ny, (1.6 * x).sin() + 0.7 * (1.6 * y).cos());
+    }
+
+    #[test]
+    fn point_on_the_far_edge_with_no_border_stays_in_bounds() {
+        // Always lands on (1, 1), and panning by -1 puts that exactly on the far edge
+        let mut c = CliffordAttractor::new([0.0, 0.0, 1.0, 1.0]);
+        let mut hist = Histogram::new(7, 5);
+        let view = View {
+            border: 0.0,
+            hpan: -1.0,
+            vpan: -1.0,
+            zoom: 1.0,
+        };
+        c.step(10, &mut hist, &view);
+        assert_eq!(hist.counts[7 * 5 - 1], 10);
+    }
+
+    #[test]
+    fn empty_histogram_normalises_to_zero() {
+        let hist = Histogram::new(4, 4);
+        let mut out = vec![f64::NAN; 16];
+        hist.normalise_into(&mut out);
+        assert!(out.iter().all(|&v| v == 0.0));
+    }
+
+    #[test]
+    fn view_far_away_counts_nothing() {
+        let mut c = CliffordAttractor::new(PARAMS);
+        let mut hist = Histogram::new(10, 10);
+        let view = View {
+            hpan: 1000.0,
+            ..View::default()
+        };
+        c.step(1000, &mut hist, &view);
+        assert_eq!(hist.max, 0);
+        assert_eq!(hist.steps, 1000);
+    }
+
+    #[test]
+    fn parse_params_round_trips() {
+        let p = [1.378_6, -0.83, 1.004_6, -2.43];
+        assert_eq!(parse_params(&format_params(p)), Some(p));
+        assert_eq!(
+            parse_params("a=1,b=2,c=3,d=4,iters=10"),
+            Some([1.0, 2.0, 3.0, 4.0])
         );
-        // Go through each parameter and check if it needs to be updated
-        if let Some(a) = params[0] {
-            self.a = a;
-        }
-        if let Some(b) = params[1] {
-            self.b = b;
-        }
-        if let Some(c) = params[2] {
-            self.c = c;
-        }
-        if let Some(d) = params[3] {
-            self.d = d;
-        }
     }
 
-    fn get_densities(&mut self, width: usize, height: usize) -> Vec<f64> {
-        self.get_densities_with_border(width, height, 0.0, 0.0, 0.0, 1.0)
-    }
-    fn get_densities_with_border(
-        &mut self,
-        width: usize,
-        height: usize,
-        _perc_border: f64,
-        hpan: f64,
-        vpan: f64,
-        zoom: f64,
-    ) -> Vec<f64> {
-        let xrange = self.xmax - self.xmin;
-        let yrange = self.ymax - self.ymin;
-        let mut densities = vec![0.0; width * height];
-        let mut densities_max = 0.0;
-
-        // First loop over the history, flooring all the values to find
-        // a histogram of how many times the attractor hit each xy point
-        for pos in &mut self.history {
-            let x = ((pos[0] - self.xmin) / xrange).floor() as usize;
-            let y = ((pos[1] - self.ymin) / yrange).floor() as usize;
-            let i = x + y * width;
-            densities[i] += 1.0;
-            if densities[i] > densities_max {
-                densities_max = densities[i];
-            }
-        }
-        // Then loop over it again, to divide each of the items in the densities
-        // by the maximum
-        for idx in &mut densities {
-            *idx /= densities_max;
-        }
-        return densities;
-    }
-
-    /// Write the DeJong Attractor to the file named `filename`
-    fn to_file(&mut self, filename: String) {
-        let mut file = std::fs::File::create(filename).expect("Failed to create file.");
-        // The preamble contains various things defining the attractor in question, and every line
-        // in the preamble starts with a `#`
-        let preamble: String = format!(
-            "#{},{},{}\n#a={}\n#b={}\n#c={}\n#d={}\n",
-            DeJongAttractor::NAME,
-            DeJongAttractor::NUM_PARAMETERS,
-            DeJongAttractor::DIMENSIONALITY,
-            self.a,
-            self.b,
-            self.c,
-            self.d
-        );
-        file.write_all(preamble.as_bytes())
-            .expect("Failed to preamble write to file.");
-        for (i, item) in self.history.iter().enumerate() {
-            let position: String = format!("{}:{},{}\n", i, item[0], item[1]);
-            file.write_all(position.as_bytes())
-                .expect("Failed to write position to file.");
+    #[test]
+    fn parse_params_rejects_malformed_lines() {
+        for line in ["", "a", "a=1,b=2,c=3", "a=1,b=2,c=3,e=4", "a=1,b=x,c=3,d=4"] {
+            assert_eq!(parse_params(line), None, "{line:?}");
         }
     }
 }

@@ -1,24 +1,13 @@
-use std::fs::File;
-use std::thread::sleep;
-use std::time::Duration;
-use std::{env, fs};
-use std::{fmt::Display, fs::OpenOptions, io::BufWriter, path::Path};
+use std::env;
+use std::fmt::Display;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
 
+use attractors::render::{colour_u32, save_png};
 use attractors::*;
-use colorous::Gradient;
-use image::{ImageBuffer, RgbImage};
-use minifb::{clamp, CursorStyle, Key, MouseButton, MouseMode, Window, WindowOptions};
+use minifb::{CursorStyle, Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 use rand::Rng;
-use std::io::{prelude::*, BufReader};
-
-enum IsoPaper {
-    A0,
-    A1,
-    A2,
-    A3,
-    A4,
-    A5,
-}
 
 const A0_600_DPI: (usize, usize) = (19866, 28087);
 const A1_600_DPI: (usize, usize) = (14043, 19866);
@@ -28,817 +17,607 @@ const A4_600_DPI: (usize, usize) = (4960, 7016);
 const A5_600_DPI: (usize, usize) = (3506, 4960);
 const ISO_PAPER_FORMAT: (usize, usize) = (636, 900);
 
-const _REELS_WIDTH: usize = 506;
-const _REELS_HEIGHT: usize = 900;
 const MAP_WIDTH: usize = 600;
 const MAP_HEIGHT: usize = 600;
-const _DIAG_WIDTH: usize = 300;
-const _DIAG_HEIGHT: usize = 100;
-const _SCREEN_WIDTH: usize = 900;
-const _SCREEN_HEIGHT: usize = 900;
+/// The map shows each parameter in [-MAP_LIMIT, MAP_LIMIT]
+const MAP_LIMIT: f64 = 5.0;
 const WIDTH: usize = ISO_PAPER_FORMAT.0;
 const HEIGHT: usize = ISO_PAPER_FORMAT.1;
-const _FIRST_DRAW_SIZE: usize = 9_000_000;
 const MIN_NUM_STEPS: usize = 500_000;
+const MAX_PREVIEW_STEPS: usize = 10_000_000;
+const DEFAULT_POWER: f64 = 0.15;
 
-const GRADIENT: Gradient = colorous::TURBO;
+/// The attractor the explorer and headless renderer use
+type Explored = CliffordAttractor;
+
+/// Where images and `special.txt` for this kind of attractor live
+fn output_dir<A: Attractor>() -> PathBuf {
+    Path::new("cache").join(A::NAME)
+}
+
+fn specials_path<A: Attractor>() -> PathBuf {
+    output_dir::<A>().join("special.txt")
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    println!("Arguments: {:?}", args);
-    if args.len() >= 2 {
-        run_headless(&args);
-    } else {
-        run_interactively(&args);
-    }
-}
-
-fn run_headless(args: &Vec<String>) {
-    // These parameters have been manually tuned
-    let mut lch = LchParams {
-        hue_slope: 0.15, // values over 0.5 give a bit of a blowout effect
-        // red-orange: 0.06
-        // orange: 0.09
-        // light blue: 0.51
-        hue_intercept: 0.51,
-        chroma_slope: 0.2,
-        chroma_intercept: 1.5,
-        light_slope: 1.6,
-        light_intercept: 0.0, // no touchie
-    };
     match args.len() {
-        2 => {
-            let power = 0.15;
-            let hpan = 0.0;
-            let vpan = 0.0;
-            let zoom = 1.0;
-            // read from file
-            let filename = &args[1];
-            let contents =
-                fs::read_to_string(filename).expect("Something went wrong reading the file");
-            let iterator = contents.lines().filter(|l| !l.starts_with("#"));
-            println!(
-                "About to create {} attractors and save them",
-                iterator.clone().count()
-            );
+        1 => run_interactively::<Explored>(),
+        2 | 3 => run_headless::<Explored>(&args[1], args.get(2).map_or("A0", String::as_str)),
+        _ => println!(
+            "Usage: attractors [<file of `a=..,b=..,c=..,d=..` lines> [A0|A1|A2|A3|A4|A5]]"
+        ),
+    }
+}
 
-            for line in iterator {
-                print!("Attempting to create attractor: `{line}`");
-                let iter = line.split(",").collect::<Vec<_>>();
-                let a = &iter[0][2..].parse::<f64>();
-                let b = &iter[1][2..].parse::<f64>();
-                let c = &iter[2][2..].parse::<f64>();
-                let d = &iter[3][2..].parse::<f64>();
-                let mut clifford;
-                if a.is_ok() && b.is_ok() && c.is_ok() && d.is_ok() {
-                    clifford = CliffordAttractor::new(vec![
-                        *(*a).as_ref().unwrap(),
-                        *(*b).as_ref().unwrap(),
-                        *(*c).as_ref().unwrap(),
-                        *(*d).as_ref().unwrap(),
-                    ]);
-                    clifford.step(40_000_000);
-                    // hue_intercept_idx += 1;
-                    // let val = hue_intercept_idx as f64 * 1.618033988749895; // Multiply by phi, the most irrational number
-                    // lch.hue_intercept = val.fract();
-                    save_to_disc(&mut clifford, A0_600_DPI, &mut lch, power, hpan, vpan, zoom);
-                    println!(" => done");
-                } else {
-                    println!(" => error parsing");
-                }
-            }
-        }
-        _ => {
-            println!("Usage: attractors [<file with attractor definitions>] [<attractor name> <parameter list...> <number of iterations>]");
+fn paper_size(name: &str) -> Option<(usize, usize)> {
+    match name.to_uppercase().as_str() {
+        "A0" => Some(A0_600_DPI),
+        "A1" => Some(A1_600_DPI),
+        "A2" => Some(A2_600_DPI),
+        "A3" => Some(A3_600_DPI),
+        "A4" => Some(A4_600_DPI),
+        "A5" => Some(A5_600_DPI),
+        _ => None,
+    }
+}
+
+fn run_headless<A: Attractor + Clone>(filename: &str, paper: &str) {
+    let Some(size) = paper_size(paper) else {
+        eprintln!("Unknown paper size `{paper}`, expected one of A0 to A5");
+        return;
+    };
+    let contents = fs::read_to_string(filename).expect("Something went wrong reading the file");
+    let lines: Vec<_> = contents
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty() && !l.starts_with('#'))
+        .collect();
+    println!("About to create {} attractors and save them", lines.len());
+
+    for (i, line) in lines {
+        let Some(params) = parse_params(line) else {
+            eprintln!("{filename}:{}: couldn't parse `{line}`", i + 1);
+            continue;
+        };
+        let attractor = A::new(params);
+        match save_png(
+            &attractor,
+            size,
+            &View::default(),
+            DEFAULT_POWER,
+            &output_dir::<A>(),
+        ) {
+            Ok(path) => println!("Saved {}", path.display()),
+            Err(e) => eprintln!("Failed to save `{line}`: {e}"),
         }
     }
 }
-fn run_interactively(_args: &Vec<String>) {
-    // Create parameters for the clifford attractor
-    let mut delta = 0.1;
-    let mut power = 0.15;
-    let mut hpan = 0.0;
-    let mut vpan = 0.0;
-    let mut zoom = 1.0;
 
-    let mut specials = get_specials();
-    let mut clifford: CliffordAttractor = CliffordAttractor::new(vec![-1.4, 1.6, 1.0, 0.7]);
-    if let Some(ref specials) = specials {
-        let mut rng = rand::thread_rng();
-        let special_idx = rng.gen_range(0..specials.len());
-        clifford.set_params(vec![
-            Some(specials[special_idx][0]),
-            Some(specials[special_idx][1]),
-            Some(specials[special_idx][2]),
-            Some(specials[special_idx][3]),
-        ]);
+struct State<A> {
+    attractor: A,
+    hist: Histogram,
+    view: View,
+    specials: Vec<[f64; 4]>,
+    /// Each frame is `noodle_factor * current + (1 - noodle_factor) * previous`, so values
+    /// closer to 0 blend attractors into each other, reducing flashing
+    noodle_factor: f64,
+    /// How much each key press changes a parameter
+    delta: f64,
+    /// Densities are raised to this power before colouring
+    power: f64,
+}
+
+impl<A: Attractor + Display> State<A> {
+    fn restart(&mut self) {
+        self.hist.clear();
+        self.attractor
+            .step(MIN_NUM_STEPS, &mut self.hist, &self.view);
     }
-    // clifford.to_file(format!(
-    //         "cache/clifford/{}-a={}-b={}-c={}-d={}.txt",
-    //         CliffordAttractor::NAME, clifford.a, clifford.b, clifford.c, clifford.d
-    //         ).to_string());
 
-    let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
+    fn set_params(&mut self, params: [Option<f64>; 4]) {
+        self.attractor.set_params(params);
+        println!("{:#}", self.attractor);
+        self.restart();
+    }
+
+    fn nudge(&mut self, idx: usize, sign: f64) {
+        let mut params = [None; 4];
+        params[idx] = Some(self.attractor.params()[idx] + sign * self.delta);
+        self.set_params(params);
+    }
+
+    fn set_view(&mut self, view: View) {
+        self.view = view;
+        self.restart();
+    }
+}
+
+struct Command<A> {
+    key: Key,
+    /// Whether holding the key keeps triggering the action
+    repeat: bool,
+    description: &'static str,
+    enabled: bool,
+    /// Called with whether either Shift key is held
+    action: fn(&mut State<A>, bool),
+}
+
+fn sign(shift: bool) -> f64 {
+    if shift {
+        -1.0
+    } else {
+        1.0
+    }
+}
+
+fn nudge<A: Attractor + Display, const IDX: usize, const UP: bool>(s: &mut State<A>, _: bool) {
+    s.nudge(IDX, if UP { 1.0 } else { -1.0 });
+}
+
+fn nudge_command<A>(
+    key: Key,
+    action: fn(&mut State<A>, bool),
+    description: &'static str,
+) -> Command<A> {
+    Command {
+        key,
+        repeat: true,
+        description,
+        enabled: true,
+        action,
+    }
+}
+
+fn commands<A: Attractor + Clone + Display>() -> Vec<Command<A>> {
+    vec![
+        nudge_command(Key::J, nudge::<A, 0, false>, "a -= delta"),
+        nudge_command(Key::K, nudge::<A, 1, false>, "b -= delta"),
+        nudge_command(Key::L, nudge::<A, 2, false>, "c -= delta"),
+        nudge_command(Key::Semicolon, nudge::<A, 3, false>, "d -= delta"),
+        nudge_command(Key::U, nudge::<A, 0, true>, "a += delta"),
+        nudge_command(Key::I, nudge::<A, 1, true>, "b += delta"),
+        nudge_command(Key::O, nudge::<A, 2, true>, "c += delta"),
+        nudge_command(Key::P, nudge::<A, 3, true>, "d += delta"),
+        Command {
+            key: Key::R,
+            repeat: false,
+            enabled: true,
+            description: "Jump to a random special attractor (Shift: random parameters in [-4, 4])",
+            action: |s, shift| {
+                let mut rng = rand::thread_rng();
+                let params = if shift || s.specials.is_empty() {
+                    [(); 4].map(|_| rng.gen_range(-4.0..4.0))
+                } else {
+                    s.specials[rng.gen_range(0..s.specials.len())]
+                };
+                s.view = View::default();
+                s.set_params(params.map(Some));
+            },
+        },
+        Command {
+            key: Key::S,
+            repeat: false,
+            enabled: true,
+            description: "Save the attractor as an A3 png (Shift: A0)",
+            action: |s, shift| {
+                let size = if shift { A0_600_DPI } else { A3_600_DPI };
+                match save_png(&s.attractor, size, &s.view, s.power, &output_dir::<A>()) {
+                    Ok(path) => println!("Saved {}", path.display()),
+                    Err(e) => eprintln!("Failed to save: {e}"),
+                }
+            },
+        },
+        Command {
+            key: Key::M,
+            repeat: false,
+            enabled: true,
+            description: "Mark the parameters as special, saving them for future use",
+            action: |s, _| mark_special(s),
+        },
+        Command {
+            key: Key::N,
+            repeat: true,
+            enabled: true,
+            description: "Blend attractors into each other less (Shift: more, helps with photosensitive epilepsy)",
+            action: |s, shift| {
+                s.noodle_factor = (s.noodle_factor + sign(shift) * 0.05).clamp(0.05, 1.0);
+                println!("noodle_factor: {:.2}", s.noodle_factor);
+            },
+        },
+        Command {
+            key: Key::T,
+            repeat: false,
+            enabled: true,
+            description: "Multiply delta by 10 (Shift: divide by 10)",
+            action: |s, shift| {
+                s.delta *= 10.0_f64.powf(sign(shift));
+                println!("delta: {}", s.delta);
+            },
+        },
+        Command {
+            key: Key::D,
+            repeat: true,
+            enabled: true,
+            description: "Increase the colour power by delta, so dim pixels get darker (Shift: decrease)",
+            action: |s, shift| {
+                s.power = (s.power + sign(shift) * s.delta).clamp(0.01, 1.0);
+                println!("power: {:.4}", s.power);
+            },
+        },
+        Command {
+            key: Key::Z,
+            repeat: true,
+            enabled: true,
+            description: "Zoom in (Shift: zoom out)",
+            action: |s, shift| {
+                let zoom = (s.view.zoom + sign(shift) * s.delta * 2.0).clamp(0.01, 100.0);
+                println!("Zoomed in at {zoom:.4}");
+                s.set_view(View { zoom, ..s.view });
+            },
+        },
+        Command {
+            key: Key::H,
+            repeat: true,
+            enabled: false,
+            description: "Pan right (Shift: left)",
+            action: |s, shift| {
+                let hpan = (s.view.hpan + sign(shift) * s.delta * 2.0 / s.view.zoom)
+                    .clamp(-1000.0, 1000.0);
+                println!("Horizontal pan is {hpan:.4}");
+                s.set_view(View { hpan, ..s.view });
+            },
+        },
+        Command {
+            key: Key::V,
+            repeat: true,
+            enabled: false,
+            description: "Pan down (Shift: up)",
+            action: |s, shift| {
+                let vpan = (s.view.vpan + sign(shift) * s.delta * 2.0 / s.view.zoom)
+                    .clamp(-1000.0, 1000.0);
+                println!("Vertical pan is {vpan:.4}");
+                s.set_view(View { vpan, ..s.view });
+            },
+        },
+        Command {
+            key: Key::Y,
+            repeat: true,
+            enabled: true,
+            description: "Run more simulation steps",
+            action: |s, _| {
+                let steps = ((1_000_000.0 * s.delta) as usize).clamp(1_000, 100_000_000);
+                s.attractor.step(steps, &mut s.hist, &s.view);
+                println!("Currently at {} steps", s.hist.steps);
+            },
+        },
+        Command {
+            key: Key::X,
+            repeat: false,
+            enabled: true,
+            description: "Reset zoom and pan",
+            action: |s, _| {
+                println!("Reset zoom and pan");
+                s.set_view(View::default());
+            },
+        },
+    ]
+}
+
+fn run_interactively<A: Attractor + Clone + Display>() {
+    let specials = load_specials::<A>();
+    let params = if specials.is_empty() {
+        A::DEFAULT_PARAMS
+    } else {
+        specials[rand::thread_rng().gen_range(0..specials.len())]
+    };
+    let mut state = State {
+        attractor: A::new(params),
+        hist: Histogram::new(WIDTH, HEIGHT),
+        view: View::default(),
+        specials,
+        noodle_factor: 0.9,
+        delta: 0.1,
+        power: DEFAULT_POWER,
+    };
+    println!("{:#}", state.attractor);
+
+    let commands = commands();
+    println!("=== List of Commands ===");
+    for command in commands.iter().filter(|c| c.enabled) {
+        println!("`{:?}` => {}", command.key, command.description);
+    }
+
     let mut window = Window::new(
         "Strange Attractors (hold esc to exit)",
         WIDTH,
         HEIGHT,
         WindowOptions::default(),
     )
-    .unwrap_or_else(|e| {
-        panic!("{}", e);
-    });
-
-    // Each frame is calculated via an exponential decay as
-    // `next = noodle_factor * current + (1-noodle_factor) * previous`
-    // Values of noodle_factor closer to 0 will 'fade in' or 'blend' the next frame with the
-    // current one, reducing stuttering or flashing effects
-    let mut noodle_factor = 0.9;
-
-    let commands = vec![
-        Command { // j -> a--
-            keys: vec![Key::J],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
-                clifford.set_params(vec![Some(clifford.a - *delta), None, None, None]);
-                clifford.reset();
-                clifford.step(MIN_NUM_STEPS);
-            }),
-            description: "u => a -= delta".to_string(),
-            enabled: true,
-        },
-        Command { // k -> b--
-            keys: vec![Key::K],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
-                clifford.set_params(vec![None, Some(clifford.b - *delta), None, None]);
-                clifford.reset();
-                clifford.step(MIN_NUM_STEPS);
-            }),
-            description: "i => b -= delta".to_string(),
-            enabled: true,
-        },
-        Command { // l -> c--
-            keys: vec![Key::L],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
-                clifford.set_params(vec![None, None, Some(clifford.c - *delta), None]);
-                clifford.reset();
-                clifford.step(MIN_NUM_STEPS);
-            }),
-            description: "l => c -= delta".to_string(),
-            enabled: true,
-        },
-        Command { // ; -> d--
-            keys: vec![Key::Semicolon],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
-                clifford.set_params(vec![None, None, None, Some(clifford.d - *delta)]);
-                clifford.reset();
-                clifford.step(MIN_NUM_STEPS);
-            }),
-            description: "p => d -= delta".to_string(),
-            enabled: true,
-        },
-        Command { // u -> a++
-            keys: vec![Key::U],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
-                clifford.set_params(vec![Some(clifford.a + *delta), None, None, None]);
-                clifford.reset();
-                clifford.step(MIN_NUM_STEPS);
-            }),
-            description: "u => a += delta".to_string(),
-            enabled: true,
-        },
-        Command { // i -> b++
-            keys: vec![Key::I],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
-                clifford.set_params(vec![None, Some(clifford.b + *delta), None, None]);
-                clifford.reset();
-                clifford.step(MIN_NUM_STEPS);
-            }),
-            description: "i => b += delta".to_string(),
-            enabled: true,
-        },
-        Command { // o -> c++
-            keys: vec![Key::O],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
-                clifford.set_params(vec![None, None, Some(clifford.c + *delta), None]);
-                clifford.reset();
-                clifford.step(MIN_NUM_STEPS);
-            }),
-            description: "o => c += delta".to_string(),
-            enabled: true,
-        },
-        Command { // p -> d++
-            keys: vec![Key::P],
-            action: Box::new(|clifford, _buffer, _keys, _lch, _specials, _decay_factor, delta, _power, hpan, vpan, zoom| {
-                clifford.set_params(vec![None, None, None, Some(clifford.d + *delta)]);
-                clifford.reset();
-                clifford.step(MIN_NUM_STEPS);
-            }),
-            description: "p => d += delta".to_string(),
-            enabled: true,
-        },
-        Command { // Hue Intercept
-            keys: vec![Key::E],
-            action: Box::new(|clifford, _buffer, keys, lch, _specials, _decay_factor, _delta, _power, hpan, vpan, zoom| {
-                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                lch.hue_intercept += 0.01 * sign;
-                println!("{:#}", lch);
-                clifford.step(1);
-            }),
-            description: "Increase or decrease the LCH hue intercept by 0.01".to_string(),
-            enabled: true,
-        },
-        Command { // Reset and randomise
-            keys: vec![Key::R],
-            action: Box::new(|clifford, buffer, keys, _lch, specials, _decay_factor, _delta, _power, hpan, vpan, zoom| {
-                for item in buffer.iter_mut() { *item = 0; }
-                // If r => Choose random from specials
-                if !keys.contains(&Key::LeftShift) {
-                    if let Some(specials) = specials {
-                        let mut rng = rand::thread_rng();
-                        let special_idx = rng.gen_range(0..specials.len());
-                        clifford.set_params(vec![
-                                            Some(specials[special_idx][0]),
-                                            Some(specials[special_idx][1]),
-                                            Some(specials[special_idx][2]),
-                                            Some(specials[special_idx][3]),
-                        ]);
-                    }
-                } else {
-                    // If R => Choose random range -4, 4
-                    let mut rng = rand::thread_rng();
-                    clifford.set_params(vec![
-                                        Some(rng.gen_range(-4.0..4.0)),
-                                        Some(rng.gen_range(-4.0..4.0)),
-                                        Some(rng.gen_range(-4.0..4.0)),
-                                        Some(rng.gen_range(-4.0..4.0)),
-                    ]);
-                };
-                clifford.reset();
-                clifford.step(MIN_NUM_STEPS);
-                *zoom = 1.0;
-                *hpan = 0.0;
-                *vpan = 0.0;
-            }),
-            description: "Randomize the Clifford parameters and re-run the attractor with these new parameters".to_string(),
-            enabled: true,
-        },
-        Command { // Print to disc
-            keys: vec![Key::S],
-            action: Box::new(|clifford, _buffer, keys, lch, _specials, _decay_factor, _delta, power, hpan, vpan, zoom| {
-                let size = if keys.contains(&Key::LeftShift) { A0_600_DPI } else { A3_600_DPI };
-                save_to_disc(clifford, size, lch, *power, *hpan, *vpan, *zoom);
-            }),
-            description: "Save the attractor in high resolution to disc as png".to_string(),
-            enabled: true,
-        },
-        Command { // Change from black bg to white bg
-            keys: vec![Key::B],
-            action: Box::new(|clifford, _buffer, _keys, lch, _specials, _decay_factor, _delta, _power, hpan, vpan, zoom| {
-                if lch.light_intercept == 1.0 {
-                    // Dark background
-                    lch.light_intercept = 0.0;
-                    lch.light_slope = 1.0;
-                    lch.chroma_intercept = 1.5;
-                    lch.chroma_slope = 0.2;
-                } else {
-                    // Light background
-                    lch.light_intercept = 1.0;
-                    lch.light_slope = -1.0;
-                    lch.chroma_intercept = 0.7;
-                    lch.chroma_slope = 1.5;
-                }
-                println!("Inverted colours:\n{:#}", lch);
-                clifford.step(1);
-            }),
-            description: "Change between black and white backgrounds".to_string(),
-            enabled: true,
-        },
-        Command { // Mark the location as 'special'
-            keys: vec![Key::M],
-            action: Box::new(|clifford, _buffer, _keys, _lch, specials, _decay_factor, _delta, _power, hpan, vpan, zoom| {
-                let filename = "cache/clifford/special.txt";
-                if let Some(specials) = specials {
-                    specials.push(vec![clifford.a, clifford.b, clifford.c, clifford.d]);
-                }
-
-                let file;
-                if !Path::new(filename).exists() {
-                    // If the file doesn't exist, create it and write the csv header line
-                    file = OpenOptions::new()
-                        .create_new(true)
-                        .write(true)
-                        .append(true)
-                        .open(filename)
-                        .expect("Failed to create new file");
-                } else {
-                    file = OpenOptions::new().append(true).open(filename).expect("Couldn't open file for appending");
-                }
-                let file_read = File::open(filename).expect("file not found!");
-                let reader = BufReader::new(file_read);
-                let to_add = format!("a={},b={},c={},d={}", clifford.a, clifford.b, clifford.c, clifford.d);
-                let mut already_in_file = false;
-                for line in reader.lines() {
-                    if line.expect("Failed to unwrap line of special.txt").contains(&to_add) {
-                        already_in_file = true;
-                    }
-                }
-                if !already_in_file {
-                    let mut file = BufWriter::new(file);
-                    writeln!(file, "{}", to_add).expect("Failed to write to file");
-                    file.flush().expect("Failed to flush the BufWriter");
-
-                    println!("Marked location as special: a={:<10.4}b={:<10.4}c={:<10.4}d={:<10.4}", clifford.a, clifford.b, clifford.c, clifford.d);
-                }
-                sleep(Duration::from_millis(10));
-            }),
-            description: "Mark a set of parameters as 'special' and save them to a file for future use".to_string(),
-            enabled: true,
-        },
-        Command { // Change how quickly images blend together (helps with image flickering)
-            keys: vec![Key::N],
-            action: Box::new(|_clifford, _buffer, keys, _lch, _specials, noodle_factor, _delta, _power, hpan, vpan, zoom| {
-                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                *noodle_factor = f64::min(1.0, f64::max(0.05, *noodle_factor + sign * 0.05));
-                println!("noodle_factor: {}", noodle_factor);
-            }),
-            description: "Change how quickly one attractor merges to another (helps with photosensitive epilepsy)".to_string(),
-            enabled: true,
-        },
-        Command { // Change the amount by which to step the parameters
-            keys: vec![Key::T],
-            action: Box::new(|_clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, _power, hpan, vpan, zoom| {
-                let sign = if keys.contains(&Key::LeftShift) { -1 } else { 1 };
-                *delta = *delta * 10.0_f64.powi(sign); // Either multiply or divide by 10
-                println!("delta: {delta}");
-                sleep(Duration::from_millis(10));
-            }),
-            description: "Change how quickly the parameter values are changed".to_string(),
-            enabled: true,
-        },
-        Command { // Change the power to which the values are raised
-            keys: vec![Key::D],
-            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, power, hpan, vpan, zoom| {
-                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                *power = f64::min(1.0, f64::max(0.0, *power + sign * *delta));
-                println!("power: {power}");
-                clifford.reset();
-                clifford.step(MIN_NUM_STEPS);
-                sleep(Duration::from_millis(10));
-            }),
-            description: "Change how quickly a value goes from black to full colour".to_string(),
-            enabled: true,
-        },
-        Command { // Change the zoom level
-            keys: vec![Key::Z],
-            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, power, hpan, vpan, zoom| {
-                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                *zoom = (*zoom + sign * (*delta) * 2.0).clamp(0.01, 100.0);
-                println!("Zoomed in at {zoom:.4}");
-
-            }),
-            description: "Change the zoom level".to_string(),
-            enabled: true,
-        },
-        Command { // Change the horizontal pan level
-            keys: vec![Key::H],
-            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, power, hpan, vpan, zoom| {
-                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                *hpan = (*hpan + sign * (*delta) * 2.0 / *zoom).clamp(-1000.0, 1000.0);
-                println!("Horizontal pan is {hpan:.4}");
-            }),
-            description: "Change the horizontal pan level".to_string(),
-            enabled: false,
-        },
-        Command { // Change the vertical pan level
-            keys: vec![Key::V],
-            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, power, hpan, vpan, zoom| {
-                let sign = if keys.contains(&Key::LeftShift) { -1.0 } else { 1.0 };
-                *vpan = (*vpan + (sign * *delta * 2.0) / *zoom).clamp(-1000.0, 1000.0);
-                println!("Vertical pan is {vpan:.4}");
-            }),
-            description: "Change the vertical pan level".to_string(),
-            enabled: false,
-        },
-        Command {
-            keys: vec![Key::Y],
-            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, power, hpan, vpan, zoom| {
-                clifford.step(((1_000_000.0 * *delta) as usize).clamp(1_000, 100_000_000));
-                println!("Currently at {} steps", clifford.history.len());
-            }),
-            description: "Run more simulation steps".to_string(),
-            enabled: true,
-        },
-        Command { // Change the zoom level
-            keys: vec![Key::X],
-            action: Box::new(|clifford, _buffer, keys, _lch, _specials, _noodle_factor, delta, power, hpan, vpan, zoom| {
-                println!("Reset zoom and pan");
-                *zoom = 1.0;
-                *hpan = 0.0;
-                *vpan = 0.0;
-            }),
-            description: "Reset zoom and reset pan".to_string(),
-            enabled: true,
-        },
-        ];
-    println!("=== List of Commands ===");
-    for command in commands.iter() {
-        println!(
-            "`{:?}` => {} (enabled: {})",
-            command.keys, command.description, command.enabled
-        );
-    }
-
-    // These parameters have been manually tuned
-    let mut lch = LchParams {
-        light_intercept: 0.0, // no touchie
-        light_slope: 1.0,
-        chroma_intercept: 1.5,
-        chroma_slope: 0.2,
-        hue_intercept: 0.45,
-        hue_slope: 0.15, // values over 0.5 give a bit of a blowout effect
-    };
-
-    let mut map_window = Window::new(
-        "Map",
-        MAP_WIDTH,
-        MAP_HEIGHT,
-        WindowOptions {
-            ..WindowOptions::default()
-        },
-    )
-    .unwrap();
+    .unwrap_or_else(|e| panic!("{}", e));
+    let mut map_window =
+        Window::new("Map", MAP_WIDTH, MAP_HEIGHT, WindowOptions::default()).unwrap();
     map_window.set_position(0, 0);
-
-    // let mut diagnostics = Window::new(
-    //     "Diagnostics",
-    //     DIAG_WIDTH,
-    //     DIAG_HEIGHT,
-    //     WindowOptions {
-    //         ..WindowOptions::default()
-    //     },
-    // ).unwrap();
-    // diagnostics.set_position(0, 65 + MAP_HEIGHT as isize);
     window.set_position(MAP_WIDTH as isize, 0);
 
-    clifford.step(MIN_NUM_STEPS);
-    let mut densities;
+    state.restart();
+    let mut buffer = vec![0u32; WIDTH * HEIGHT];
+    let mut densities = vec![0f64; WIDTH * HEIGHT];
     let mut prev_densities = vec![0f64; WIDTH * HEIGHT];
-    // let mut diag_buf = vec![0u32; DIAG_WIDTH * DIAG_HEIGHT];
     let mut map_buf = vec![0u32; MAP_WIDTH * MAP_HEIGHT];
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        // Then use those generated points to draw onto the buffer in
-        // the appropriate spaces
-        if clifford.history.len() < 10_000_000 {
-            clifford.step(MIN_NUM_STEPS);
-            if clifford.history.len() % 10_000 <= 1000 {
-                print!("Stepping ({})...", clifford.history.len());
-            }
+        if state.hist.steps < MAX_PREVIEW_STEPS {
+            state
+                .attractor
+                .step(MIN_NUM_STEPS, &mut state.hist, &state.view);
         }
-        densities = clifford.get_densities_with_border(WIDTH, HEIGHT, 0.05, hpan, vpan, zoom);
-        let avg_density = densities.iter().sum::<f64>() / densities.len() as f64;
-        for (i, item) in buffer.iter_mut().enumerate() {
-            prev_densities[i] =
-                noodle_factor * densities[i] + (1.0 - noodle_factor) * prev_densities[i];
-
-            let col = GRADIENT.eval_continuous(prev_densities[i]);
-
-            *item = argb_to_u32(0, col.r, col.g, col.b);
-
-            // hsla_to_u32(
-            //     (prev_densities[i]) * lch.hue_slope + lch.hue_intercept,
-            //     (prev_densities[i]) * lch.chroma_slope + lch.chroma_intercept,
-            //     (prev_densities[i]).powf(power) * lch.light_slope + lch.light_intercept,
-            //     0.0,
-            // );
+        state.hist.normalise_into(&mut densities);
+        let nf = state.noodle_factor;
+        for ((pixel, prev), &density) in buffer.iter_mut().zip(&mut prev_densities).zip(&densities)
+        {
+            *prev = nf * density + (1.0 - nf) * *prev;
+            *pixel = colour_u32(*prev, state.power);
         }
+
         if map_window.is_open() {
-            let mouse_pos = map_window.get_mouse_pos(MouseMode::Discard);
             let new_params = update_map(
                 &mut map_buf,
-                &clifford,
-                &specials,
-                &mouse_pos,
+                &state.attractor.params(),
+                &state.specials,
+                map_window.get_mouse_pos(MouseMode::Discard),
                 map_window.get_mouse_down(MouseButton::Left),
                 &mut map_window,
             );
             map_window
                 .update_with_buffer(&map_buf, MAP_WIDTH, MAP_HEIGHT)
                 .unwrap();
-            // Only update the attractor if >0 of the parameters have changed
             if new_params.iter().any(|p| p.is_some()) {
-                clifford.set_params(new_params);
-                clifford.reset();
-                clifford.step(MIN_NUM_STEPS);
+                state.set_params(new_params);
             }
         }
-        let wind_keys = window.get_keys();
-        for cmd in &commands {
-            // check if the currently pressed keys match any of the commands' required keys
-            if cmd.enabled && cmd.keys.iter().all(|k| wind_keys.contains(k)) {
-                (cmd.action)(
-                    &mut clifford,
-                    &mut buffer,
-                    &wind_keys,
-                    &mut lch,
-                    &mut specials,
-                    &mut noodle_factor,
-                    &mut delta,
-                    &mut power,
-                    &mut hpan,
-                    &mut vpan,
-                    &mut zoom,
-                );
+
+        let shift = window.is_key_down(Key::LeftShift) || window.is_key_down(Key::RightShift);
+        let repeating = window.get_keys_pressed(KeyRepeat::Yes);
+        let once = window.get_keys_pressed(KeyRepeat::No);
+        for cmd in commands.iter().filter(|c| c.enabled) {
+            let pressed = if cmd.repeat { &repeating } else { &once };
+            if pressed.contains(&cmd.key) {
+                (cmd.action)(&mut state, shift);
             }
         }
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
-
-        // if diagnostics.is_open() {
-        //     update_diagnostics(&mut diag_buf, &clifford, avg_density);
-        //     diagnostics.update_with_buffer(&diag_buf, DIAG_WIDTH, DIAG_HEIGHT).unwrap();
-        // }
     }
 }
 
-fn save_to_disc(
-    clifford: &mut CliffordAttractor,
-    size: (usize, usize),
-    lch: &mut LchParams,
-    power: f64,
-    hpan: f64,
-    vpan: f64,
-    zoom: f64,
-) {
-    println!("Saving with power {power}");
-    let filename = format!(
-        "cache/clifford/a={:.6},b={:.6},c={:.6},d={:.6},iters={}.png",
-        clifford.a,
-        clifford.b,
-        clifford.c,
-        clifford.d,
-        clifford.history.len()
-    );
-    let mut image: RgbImage =
-        ImageBuffer::new(size.0.try_into().unwrap(), size.1.try_into().unwrap());
-    while clifford.history.len() < 40_000_000 {
-        print!(".");
-        clifford.step(5_000_000);
-    }
-    let densities = clifford.get_densities_with_border(
-        size.0 as usize,
-        size.1 as usize,
-        0.05,
-        hpan,
-        vpan,
-        zoom,
-    );
-    for (i, val) in densities.iter().enumerate() {
-        let col = GRADIENT.eval_continuous((*val).powf(power));
-        let packed = argb_to_u32(0, col.r, col.g, col.b);
-
-        // let packed = hsla_to_u32(
-        //     val * lch.hue_slope + lch.hue_intercept,
-        //     val * lch.chroma_slope + lch.chroma_intercept,
-        //     // The lightness is inversely proportional to the size of of the grid, so
-        //     // adjust the lightness power accordingly
-        //     val.powf(power) * lch.light_slope + lch.light_intercept,
-        //     0.0,
-        // );
-        let x = i % size.0 as usize;
-        let y = i / size.0 as usize;
-        let (_a, r, g, b) = u32_to_argb(packed);
-        image.put_pixel(x as u32, y as u32, image::Rgb([r, g, b]));
-    }
-    image.save(filename).unwrap();
+fn load_specials<A: Attractor>() -> Vec<[f64; 4]> {
+    let path = specials_path::<A>();
+    let contents = match fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return vec![],
+        Err(e) => {
+            eprintln!("Couldn't read {}: {e}", path.display());
+            return vec![];
+        }
+    };
+    contents
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
+        .filter_map(|(i, line)| {
+            let params = parse_params(line);
+            if params.is_none() {
+                eprintln!(
+                    "{}:{}: skipping malformed line `{line}`",
+                    path.display(),
+                    i + 1
+                );
+            }
+            params
+        })
+        .collect()
 }
 
+fn mark_special<A: Attractor>(state: &mut State<A>) {
+    let params = state.attractor.params();
+    if state.specials.contains(&params) {
+        println!("Already marked as special: {}", format_params(params));
+        return;
+    }
+    match append_special::<A>(params) {
+        Ok(()) => {
+            state.specials.push(params);
+            println!("Marked as special: {}", format_params(params));
+        }
+        Err(e) => eprintln!("Couldn't write to {}: {e}", specials_path::<A>().display()),
+    }
+}
+
+fn append_special<A: Attractor>(params: [f64; 4]) -> io::Result<()> {
+    fs::create_dir_all(output_dir::<A>())?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .append(true)
+        .open(specials_path::<A>())?;
+    // Don't glue the new entry onto a last line that's missing its newline
+    if file.metadata()?.len() > 0 {
+        let mut last = [0u8];
+        file.seek(SeekFrom::End(-1))?;
+        file.read_exact(&mut last)?;
+        if last[0] != b'\n' {
+            writeln!(file)?;
+        }
+    }
+    writeln!(file, "{}", format_params(params))
+}
+
+fn rgb(r: u8, g: u8, b: u8) -> u32 {
+    ((r as u32) << 16) | ((g as u32) << 8) | b as u32
+}
+
+/// A rectangle of the map window, `[left, right) x [top, bottom)`
+#[derive(Clone, Copy)]
+struct Rect {
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+}
+
+impl Rect {
+    fn contains(&self, x: f64, y: f64) -> bool {
+        self.left as f64 <= x
+            && x < self.right as f64
+            && self.top as f64 <= y
+            && y < self.bottom as f64
+    }
+
+    /// Set the pixel only if it's inside this rectangle
+    fn set(&self, buf: &mut [u32], x: isize, y: isize, colour: u32) {
+        if self.contains(x as f64, y as f64) {
+            buf[y as usize * MAP_WIDTH + x as usize] = colour;
+        }
+    }
+
+    fn param_to_px(&self, px: f64, py: f64) -> (isize, isize) {
+        let (l, r, t, b) = (
+            self.left as f64,
+            self.right as f64,
+            self.top as f64,
+            self.bottom as f64,
+        );
+        let x = from_range_to_domain(px, -MAP_LIMIT, MAP_LIMIT, l, r) as isize;
+        let y = from_range_to_domain(py, -MAP_LIMIT, MAP_LIMIT, t, b) as isize;
+        (
+            x.min(self.right as isize - 1),
+            y.min(self.bottom as isize - 1),
+        )
+    }
+
+    fn px_to_param(&self, x: f64, y: f64) -> (f64, f64) {
+        (
+            from_range_to_domain(
+                x,
+                self.left as f64,
+                self.right as f64,
+                -MAP_LIMIT,
+                MAP_LIMIT,
+            ),
+            from_range_to_domain(
+                y,
+                self.top as f64,
+                self.bottom as f64,
+                -MAP_LIMIT,
+                MAP_LIMIT,
+            ),
+        )
+    }
+}
+
+/// Draw the four parameter plots, returning new parameters if the user is clicking on one.
 fn update_map(
-    map_buf: &mut Vec<u32>,
-    clifford: &CliffordAttractor,
-    specials: &Option<Vec<Vec<f64>>>,
-    mouse_pos: &Option<(f32, f32)>,
+    map_buf: &mut [u32],
+    params: &[f64; 4],
+    specials: &[[f64; 4]],
+    mouse_pos: Option<(f32, f32)>,
     mouse_down: bool,
     map_window: &mut Window,
-) -> Vec<Option<f64>> {
-    let color_axes = argb_to_u32(0, 40, 40, 40);
-    let color_specials = argb_to_u32(0, 50, 50, 50);
-    let color_specials_exact = argb_to_u32(0, 0, 255, 0);
-    let color_crosshairs = argb_to_u32(0, 150, 150, 150);
-    let color_crosshairs_mouse = argb_to_u32(0, 150, 150, 150);
+) -> [Option<f64>; 4] {
+    let color_axes = rgb(40, 40, 40);
+    let color_specials = rgb(50, 50, 50);
+    let color_specials_exact = rgb(0, 255, 0);
+    let color_crosshairs = rgb(150, 150, 150);
+    let color_crosshairs_mouse = rgb(150, 150, 150);
 
-    let axes = vec![
-        (clifford.a, clifford.b),
-        (clifford.c, clifford.b),
-        (clifford.a, clifford.d),
-        (clifford.c, clifford.d),
-    ];
-    // Erase everything, we want to start from a blank canvas
+    // Which parameters each plot shows on its (x, y) axes:
+    // 0:(a,b) 1:(c,b)
+    // 2:(a,d) 3:(c,d)
+    const PLOT_AXES: [(usize, usize); 4] = [(0, 1), (2, 1), (0, 3), (2, 3)];
+    let (half_w, half_h) = (MAP_WIDTH / 2, MAP_HEIGHT / 2);
+    let whole_window = Rect {
+        left: 0,
+        top: 0,
+        right: MAP_WIDTH,
+        bottom: MAP_HEIGHT,
+    };
+
     map_buf.fill(0);
-    let mut returner = vec![None; 4];
-    // Draw the axes, and the specially marked points on those axes
-    for (plt_idx, ax) in axes.iter().enumerate() {
-        // Figure out the topleft pixel coordinate for the current axis
-        let topleft = (
-            (0.5 * MAP_WIDTH as f64 * if plt_idx % 2 == 1 { 1.0 } else { 0.0 }) as usize,
-            (0.5 * MAP_HEIGHT as f64 * if plt_idx / 2 == 1 { 1.0 } else { 0.0 }) as usize,
-        );
-        let botright = (
-            (topleft.0 as f64 + 0.5 * MAP_WIDTH as f64) as usize,
-            (topleft.1 as f64 + 0.5 * MAP_HEIGHT as f64) as usize,
-        );
+    let mut new_params = [None; 4];
+    let mut mouse_in_a_plot = false;
+    for (plt_idx, &(xi, yi)) in PLOT_AXES.iter().enumerate() {
+        let left = (plt_idx % 2) * half_w;
+        let top = (plt_idx / 2) * half_h;
+        let plot = Rect {
+            left,
+            top,
+            right: left + half_w,
+            bottom: top + half_h,
+        };
 
-        // Calculate the current x and y position
-        let x = from_range_to_domain(
-            ax.0,
-            -5.0,
-            5.0,
-            topleft.0 as f64,
-            topleft.0 as f64 + 0.5 * MAP_WIDTH as f64,
-        );
-        let y = from_range_to_domain(
-            ax.1,
-            -5.0,
-            5.0,
-            topleft.1 as f64,
-            topleft.1 as f64 + 0.5 * MAP_WIDTH as f64,
-        );
-
-        // Draw the axes
-        let zero_x = from_range_to_domain(
-            0.0,
-            -5.0,
-            5.0,
-            topleft.0 as f64,
-            topleft.0 as f64 + 0.5 * MAP_WIDTH as f64,
-        ) as usize;
-        let zero_y = from_range_to_domain(
-            0.0,
-            -5.0,
-            5.0,
-            topleft.1 as f64,
-            topleft.1 as f64 + 0.5 * MAP_WIDTH as f64,
-        ) as usize;
-        let x_border = 0.01 * MAP_WIDTH as f64;
-        for x in (x_border as usize)..((0.5 * MAP_WIDTH as f64 - x_border) as usize) {
-            map_buf[xy2idx(x + topleft.0, zero_y, MAP_WIDTH, MAP_HEIGHT)] = color_axes;
+        let (zero_x, zero_y) = plot.param_to_px(0.0, 0.0);
+        let x_border = MAP_WIDTH / 100;
+        for x in (left + x_border)..(plot.right - x_border) {
+            plot.set(map_buf, x as isize, zero_y, color_axes);
         }
-        let y_border = 0.01 * MAP_HEIGHT as f64;
-        for y in (y_border as usize)..((0.5 * MAP_HEIGHT as f64 - y_border) as usize) {
-            map_buf[xy2idx(zero_x, y + topleft.1, MAP_WIDTH, MAP_HEIGHT)] = color_axes;
+        let y_border = MAP_HEIGHT / 100;
+        for y in (top + y_border)..(plot.bottom - y_border) {
+            plot.set(map_buf, zero_x, y as isize, color_axes);
         }
 
-        // Mark all the special points on the map
-        if let Some(specials) = specials {
-            for special in specials {
-                let mx = from_range_to_domain(
-                    // x component is either a (plots 0 and 2) or c (plots 1 and 3)
-                    special[if plt_idx % 2 == 0 { 0 } else { 2 }],
-                    -5.0,
-                    5.0,
-                    topleft.0 as f64,
-                    topleft.0 as f64 + 0.5 * MAP_WIDTH as f64,
-                );
-                let my = from_range_to_domain(
-                    // y component is either b (plots 0 and 1) or d (plots 2 and 3)
-                    special[if plt_idx / 2 == 0 { 1 } else { 3 }],
-                    -5.0,
-                    5.0,
-                    topleft.1 as f64,
-                    topleft.1 as f64 + 0.5 * MAP_WIDTH as f64,
-                );
+        // Specials are brighter the closer they are to the current parameters on the two axes
+        // this plot doesn't show
+        let (oxi, oyi) = PLOT_AXES[3 - plt_idx];
+        for special in specials {
+            let (mx, my) = plot.param_to_px(special[xi], special[yi]);
+            let x_dist = (params[oxi] - special[oxi]).abs();
+            let y_dist = (params[oyi] - special[oyi]).abs();
+            let max_dist = 1.5;
+            let colour = if x_dist < 0.1 && y_dist < 0.1 {
+                color_specials_exact
+            } else if x_dist < max_dist && y_dist < max_dist {
+                let normalised_dist =
+                    (x_dist * x_dist + y_dist * y_dist).sqrt() / (2_f64.sqrt() * max_dist);
+                let brightness = 50 + (200.0 - 200.0 * normalised_dist) as u8;
+                rgb(brightness, brightness, brightness)
+            } else {
+                color_specials
+            };
+            plot.set(map_buf, mx, my, colour);
+        }
 
-                // 0:(a,b) 1:(c,b)
-                // 2:(a,d) 3:(c,d)
-                let opposite_plot_idx = 3 - plt_idx;
+        // Cross-hairs on the current parameters, leaving the centre clear
+        let (x, y) = plot.param_to_px(params[xi], params[yi]);
+        for delta in (-30..30).step_by(3).filter(|d: &isize| d.abs() >= 10) {
+            plot.set(map_buf, x + delta, y, color_crosshairs);
+            plot.set(map_buf, x, y + delta, color_crosshairs);
+        }
 
-                let x_opp_special = special[if opposite_plot_idx % 2 == 0 { 0 } else { 2 }];
-                let x_opp_actual = axes[opposite_plot_idx].0;
-
-                let y_opp_special = special[if opposite_plot_idx / 2 == 0 { 1 } else { 3 }];
-                let y_opp_actual = axes[opposite_plot_idx].1;
-
-                let x_dist = (x_opp_actual - x_opp_special).abs();
-                let y_dist = (y_opp_actual - y_opp_special).abs();
-
-                let max_dist = 1.5;
-                if x_dist < 0.1 && y_dist < 0.1 {
-                    // If the attractor is basically exactly on the mark, colour it green
-                    map_buf[xy2idx(mx as usize, my as usize, MAP_WIDTH, MAP_HEIGHT)] =
-                        color_specials_exact;
-                } else if x_dist < max_dist && y_dist < max_dist {
-                    // Otherwise, if the attractor is close but not exact, colour it closer to
-                    // white than grey
-                    let normalised_dist =
-                        (x_dist * x_dist + y_dist * y_dist).sqrt() / (2_f64.sqrt() * max_dist);
-                    let amount_to_add = (200.0 - 200.0 * normalised_dist) as u8;
-                    map_buf[xy2idx(mx as usize, my as usize, MAP_WIDTH, MAP_HEIGHT)] = argb_to_u32(
-                        0,
-                        50 + amount_to_add,
-                        50 + amount_to_add,
-                        50 + amount_to_add,
-                    );
-                } else {
-                    map_buf[xy2idx(mx as usize, my as usize, MAP_WIDTH, MAP_HEIGHT)] =
-                        color_specials;
+        if let Some((mousex, mousey)) = mouse_pos {
+            let (mousex, mousey) = (mousex as f64, mousey as f64);
+            if plot.contains(mousex, mousey) {
+                mouse_in_a_plot = true;
+                if mouse_down {
+                    let (px, py) = plot.px_to_param(mousex, mousey);
+                    new_params[xi] = Some(px);
+                    new_params[yi] = Some(py);
                 }
             }
         }
-
-        // Draw the current position, and cross hairs lines marking it's position
-        for delta in ((-30)..30).step_by(3) {
-            // But leave the actual centre point unmarked
-            if (delta as i8).abs() < 10 {
-                continue;
-            }
-            map_buf[xy2idx(
-                (x as isize + delta + MAP_WIDTH as isize) as usize % MAP_WIDTH,
-                y as usize,
-                MAP_WIDTH,
-                MAP_HEIGHT,
-            )] = color_crosshairs;
-            map_buf[xy2idx(
-                x as usize,
-                (y as isize + delta + MAP_HEIGHT as isize) as usize % MAP_HEIGHT,
-                MAP_WIDTH,
-                MAP_HEIGHT,
-            )] = color_crosshairs;
-        }
-
-        // If the user clicks on this set of axes, change the parameters
-        if let Some((mousex, mousey)) = mouse_pos {
-            // Figure out if the user's even clicking on the current plot
-            let mouse_in_curr_plot_x = topleft.0 < *mousex as usize && *mousex < botright.0 as f32;
-            let mouse_in_curr_plot_y = topleft.1 < *mousey as usize && *mousey < botright.1 as f32;
-            if mouse_down && mouse_in_curr_plot_x && mouse_in_curr_plot_y {
-                // Use a cross-hair cursor
-                map_window.set_cursor_style(CursorStyle::Crosshair);
-                // Convert pixel-coordinates to parameter-coordinates
-                let param_x = from_range_to_domain(
-                    *mousex as f64,
-                    topleft.0 as f64,
-                    botright.0 as f64,
-                    -5.0,
-                    5.0,
-                );
-                let param_y = from_range_to_domain(
-                    *mousey as f64,
-                    topleft.1 as f64,
-                    botright.1 as f64,
-                    -5.0,
-                    5.0,
-                );
-                // Resolve parameter values to the correct attractor parameters based on which plot
-                // we're currently resolving
-                let a = if plt_idx == 0 || plt_idx == 2 {
-                    Some(param_x)
-                } else {
-                    None
-                };
-                let b = if plt_idx == 0 || plt_idx == 1 {
-                    Some(param_y)
-                } else {
-                    None
-                };
-                let c = if plt_idx == 1 || plt_idx == 3 {
-                    Some(param_x)
-                } else {
-                    None
-                };
-                let d = if plt_idx == 2 || plt_idx == 3 {
-                    Some(param_y)
-                } else {
-                    None
-                };
-                returner = vec![a, b, c, d];
-            } else {
-                // Reset the cursor to not be gone
-                map_window.set_cursor_style(CursorStyle::Arrow);
-            }
-        }
     }
 
-    // Draw cross-hairs for the mouse's current position
+    map_window.set_cursor_style(if mouse_in_a_plot {
+        CursorStyle::Crosshair
+    } else {
+        CursorStyle::Arrow
+    });
     if let Some((mousex, mousey)) = mouse_pos {
-        for delta in (-10)..10 {
-            map_buf[xy2idx(
-                (*mousex as isize + delta + MAP_WIDTH as isize) as usize % MAP_WIDTH,
-                *mousey as usize,
-                MAP_WIDTH,
-                MAP_HEIGHT,
-            )] = color_crosshairs_mouse;
-            map_buf[xy2idx(
-                *mousex as usize,
-                (*mousey as isize + delta + MAP_HEIGHT as isize) as usize % MAP_HEIGHT,
-                MAP_WIDTH,
-                MAP_HEIGHT,
-            )] = color_crosshairs_mouse;
+        let (mousex, mousey) = (mousex as isize, mousey as isize);
+        for delta in -10..10 {
+            whole_window.set(map_buf, mousex + delta, mousey, color_crosshairs_mouse);
+            whole_window.set(map_buf, mousex, mousey + delta, color_crosshairs_mouse);
         }
     }
-    return returner;
-}
-
-fn xy2idx(x: usize, y: usize, width: usize, height: usize) -> usize {
-    return usize::min(usize::max(0, y), height - 1) * width
-        + usize::min(usize::max(0, x), width - 1);
+    new_params
 }
 
 fn from_range_to_domain(
@@ -848,171 +627,7 @@ fn from_range_to_domain(
     lower_to: f64,
     upper_to: f64,
 ) -> f64 {
-    return ((clamp(lower_from, x, upper_from) - lower_from) / (upper_from - lower_from))
+    (x.clamp(lower_from, upper_from) - lower_from) / (upper_from - lower_from)
         * (upper_to - lower_to)
-        + lower_to;
-}
-
-fn u32_to_argb(packed: u32) -> (u8, u8, u8, u8) {
-    let a = ((0xFF_00_00_00 & packed) >> 24) as u8;
-    let r = ((0x00_FF_00_00 & packed) >> 16) as u8;
-    let g = ((0x00_00_FF_00 & packed) >> 8) as u8;
-    let b = (0x00_00_00_FF & packed) as u8;
-    return (a, r, g, b);
-}
-
-fn get_specials() -> Option<Vec<Vec<f64>>> {
-    let filename = "cache/clifford/special.txt";
-
-    if Path::new(filename).exists() {
-        let file_read = File::open(filename).expect("file not found!");
-        let reader = BufReader::new(file_read);
-        let specials = reader
-            .lines()
-            .map(|l| {
-                l.unwrap()
-                    .clone()
-                    .split(",")
-                    .map(|s| {
-                        *(&s[2..]
-                            .to_owned()
-                            .parse::<f64>()
-                            .expect("Couldn't parse specials.txt line"))
-                    })
-                    .collect()
-            })
-            .collect();
-        return Some(specials);
-    }
-    return None;
-}
-
-fn argb_to_u32(a: u8, r: u8, g: u8, b: u8) -> u32 {
-    let (a, r, g, b) = (a as u32, r as u32, g as u32, b as u32);
-    (a << 24) | (r << 16) | (g << 8) | b
-}
-
-/// Convert a Hue Saturation Light Alpha colour to a bit-packed u32. Alpha is currently ignored.
-fn hsla_to_u32(h: f64, s: f64, l: f64, _a: f64) -> u32 {
-    // Converted to rust from JS taken from:
-    // https://stackoverflow.com/a/9493060
-    let r: u8;
-    let g: u8;
-    let b: u8;
-    let a: u8 = 1;
-
-    // If saturation is zero, then the color is just grey => all red,
-    // green, blue components are equal
-    if s == 0.0 {
-        r = (l * 255.0) as u8;
-        g = (l * 255.0) as u8;
-        b = (l * 255.0) as u8;
-    } else {
-        fn hue_to_rgb_floats(p: f64, q: f64, mut t: f64) -> f64 {
-            // ensure 0.0 <= t <= 1.0
-            if t < 0.0 {
-                t += 1.0
-            };
-            if t > 1.0 {
-                t -= 1.0
-            };
-            // I've got no clue how this works
-            if t < 1.0 / 6.0 {
-                return p + (q - p) * 6.0 * t;
-            };
-            if t < 1.0 / 2.0 {
-                return q;
-            };
-            if t < 2.0 / 3.0 {
-                return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
-            };
-            return p;
-        }
-
-        // I've got no clue how this works
-        let q = if l < 0.5 {
-            l * (1.0 + s)
-        } else {
-            l + s - l * s
-        };
-        // I've got no clue how this works
-        let p = 2.0 * l - q;
-        r = (255.0 * hue_to_rgb_floats(p, q, h + 1.0 / 3.0)) as u8;
-        g = (255.0 * hue_to_rgb_floats(p, q, h)) as u8;
-        b = (255.0 * hue_to_rgb_floats(p, q, h - 1.0 / 3.0)) as u8;
-    }
-    return argb_to_u32(a, r, g, b);
-}
-
-// /// Convert CIE Light Chroma Hue to a bit-packed u32 value. https://css.land/lch/
-// /// l, c, and h are all within [0, 1]
-// /// Light -> 0.0 is black, 0.5 is full color, 1.0 is  white
-// /// Chroma -> 0.0 is grey, 1.0 is full colourfulness
-// /// Hue -> 0.0 to 1.0 is: pink, red, orange, yellow, green, light blue, dark blue, purple, pink
-// fn lch_to_u32(l: f64, c: f64, h: f64) -> u32 {
-//     let lch = Lch::new(l * 100.0, c * 132.0, h * 360.0);
-//     let rgb = Srgb::from_color(lch);
-//     return argb_to_u32(0, (rgb.red * 255.0) as u8, (rgb.green * 255.0) as u8, (rgb.blue * 255.0) as u8);
-// }
-// TODO plot the keyframes as lines tracing the a,b,c,d parameters along the
-// bottom of the screen
-
-/// A common format for commands so that a help file can be printed out easily in the format
-/// `key` -> `description`.
-struct Command {
-    /// The key which triggers the `action`.
-    keys: Vec<Key>,
-    /// A function called when `key` is pressed.
-    action: Box<
-        dyn Fn(
-            &mut CliffordAttractor,
-            &mut Vec<u32>,
-            &Vec<Key>,
-            &mut LchParams,
-            &mut Option<Vec<Vec<f64>>>,
-            &mut f64,
-            &mut f64,
-            &mut f64,
-            &mut f64,
-            &mut f64,
-            &mut f64,
-        ) -> (),
-    >,
-    /// A one-line description of what `action` does.
-    description: String,
-    /// `action` is only called if `key` is pressed and `enabled` is true.
-    enabled: bool,
-}
-
-/// Contains the constants that get multiplied by the value at each pixel in order to convert that
-/// scalar value to a color in LCH space. The conversion is done as:
-/// ```
-/// light_component  = val * light_slope  + light_intercept
-/// chroma_component = val * chroma_slope + chroma_intercept
-/// hue_component    = val * hue_slope    + hue_intercept
-/// ```
-/// For example
-struct LchParams {
-    light_intercept: f64,
-    /// Light -> 0.0 is black, 0.5 is full color, 1.0 is  white
-    light_slope: f64,
-    chroma_intercept: f64,
-    /// Chroma -> 0.0 is grey, 1.0 is full colourfulness
-    chroma_slope: f64,
-    hue_intercept: f64,
-    /// Hue -> 0.0 to 1.0 is: pink, red, orange, yellow, green, light blue, dark blue, purple, pink
-    hue_slope: f64,
-}
-
-impl Display for LchParams {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "LchParams:\n  light = val * {light_slope:+.4} + {light_intercept:+.4}\n  chroma = val * {chroma_slope:+.4} + {chroma_intercept:+.4}\n  hue = val * {hue_slope:+.4} + {hue_intercept:+.4}",
-               light_slope=self.light_slope,
-               light_intercept=self.light_intercept,
-               chroma_slope=self.chroma_slope,
-               chroma_intercept=self.chroma_intercept,
-               hue_slope=self.hue_slope,
-               hue_intercept=self.hue_intercept,
-        )
-    }
+        + lower_to
 }

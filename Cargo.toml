@@ -11,8 +11,8 @@ license = "GPL-3.0-only"
 [dependencies]
 rand = "0.8.0"
 minifb = "0.23.0"
-image = { version = "0.24.1", default-features = false, features = ["rgb", "png"] }
 colorous = "1.0.12"
+png = "0.17"
 
 [dev-dependencies]
 divan = "0.1.21"
