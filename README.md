@@ -79,7 +79,7 @@ directory.
 To add a new kind, write a struct holding its parameters in
 `src/attractors.rs`, implement the `Attractor` trait for it (its name,
 parameter names, default parameters, a range for the map, and the formula), and
-add it to `kinds()` in `src/main.rs`. If you don't know a box that contains the
+add it to the list in `all_attractors!` in `src/lib.rs`. If you don't know a box that contains the
 attractor, leave out `bounds` and it will be estimated from a sample of points.
 
 ### Colours

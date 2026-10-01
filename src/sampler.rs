@@ -60,9 +60,6 @@ impl Histogram {
 const PARALLEL_MIN_STEPS: usize = 100_000;
 /// Uncounted steps each walker takes after `Sampler::reset`, so slow transients aren't drawn
 pub const WARMUP_STEPS: usize = 20_000;
-/// Extra uncounted steps per walker, after warm-up, used to estimate bounds for attractors
-/// that don't provide them
-const BOUNDS_SAMPLE_STEPS: usize = 2_000;
 /// After a reset, walker `i` first follows the orbit for `i * PHASE_STEPS` steps, so walkers on a
 /// cycle or slow rotation start at different points around it instead of moving in lockstep
 const PHASE_STEPS: usize = 101;
@@ -170,7 +167,7 @@ impl Sampler {
                     (x, y) = attractor.next(x, y);
                 }
                 if estimate {
-                    for _ in 0..BOUNDS_SAMPLE_STEPS {
+                    for _ in 0..A::BOUNDS_SAMPLE_STEPS {
                         (x, y) = attractor.next(x, y);
                         if x.abs() < ESCAPED && y.abs() < ESCAPED {
                             *seen = Some(extend(*seen, x, y));

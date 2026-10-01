@@ -1,5 +1,5 @@
 //! Strange attractors. To add one: write a struct holding its parameters, implement
-//! `Attractor` for it, and add it to the `attractors!` list in `main.rs`.
+//! `Attractor` for it, and add it to `all_attractors!` in `lib.rs`.
 //!
 //! Examples of strange attractors:
 //! - [Clifford Attractors](http://paulbourke.net/fractals/clifford/)
@@ -37,6 +37,8 @@ pub trait Attractor: Clone + Send + Sync + 'static {
     const START: (f64, f64) = (0.0, 0.0);
     /// How much each key press changes a parameter, to begin with
     const STEP: f64 = 0.1;
+    /// Uncounted steps per walker used to estimate bounds when `bounds` returns `None`
+    const BOUNDS_SAMPLE_STEPS: usize = 2_000;
 
     /// `params` has one value per entry of `PARAM_NAMES`
     fn from_params(params: &[f64]) -> Self;
@@ -343,6 +345,248 @@ impl Attractor for SprottQuadraticAttractor {
     }
 }
 
+/// Barry Martin's [Hopalong](https://www.fractalsciencekit.com/types/orbital.htm) orbit
+#[derive(Debug, Clone)]
+pub struct HopalongAttractor {
+    p: [f64; 3],
+}
+
+impl Attractor for HopalongAttractor {
+    const NAME: &'static str = "hopalong";
+    const FORMULA: &'static str = "x' = y - sign(x) sqrt(|b x - c|)\ny' = a - x";
+    const PARAM_NAMES: &'static [&'static str] = &["a", "b", "c"];
+    const DEFAULT_PARAMS: &'static [f64] = &[1.1, 0.5, 1.0];
+    const PARAM_RANGE: (f64, f64) = (-3.0, 3.0);
+    /// The orbit never stops spreading outwards (it reaches ~5 after 2k steps, ~19 after 20k,
+    /// ~190 after 20M), so frame the region each walker covers in its first 20k steps
+    const BOUNDS_SAMPLE_STEPS: usize = 20_000;
+
+    fn from_params(params: &[f64]) -> Self {
+        HopalongAttractor {
+            p: params.try_into().expect("3 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+        let [a, b, c] = self.p;
+        (y - x.signum() * (b * x - c).abs().sqrt(), a - x)
+    }
+}
+
+/// The [Gumowski–Mira](https://en.wikipedia.org/wiki/Gumowski%E2%80%93Mira_attractor) map
+#[derive(Debug, Clone)]
+pub struct GumowskiMiraAttractor {
+    p: [f64; 3],
+}
+
+impl GumowskiMiraAttractor {
+    #[inline(always)]
+    fn f(mu: f64, x: f64) -> f64 {
+        mu * x + 2.0 * (1.0 - mu) * x * x / (1.0 + x * x)
+    }
+}
+
+impl Attractor for GumowskiMiraAttractor {
+    const NAME: &'static str = "gumowskimira";
+    const FORMULA: &'static str = "f(x) = mu x + 2 (1 - mu) x^2 / (1 + x^2)\n\
+                                   x' = y + a (1 - s y^2) y + f(x)\n\
+                                   y' = -x + f(x')";
+    const PARAM_NAMES: &'static [&'static str] = &["a", "s", "mu"];
+    const DEFAULT_PARAMS: &'static [f64] = &[0.008, 0.05, -0.496];
+    const PARAM_RANGE: (f64, f64) = (-1.0, 1.0);
+    const START: (f64, f64) = (0.1, 0.1);
+
+    fn from_params(params: &[f64]) -> Self {
+        GumowskiMiraAttractor {
+            p: params.try_into().expect("3 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+        let [a, s, mu] = self.p;
+        let nx = y + a * (1.0 - s * y * y) * y + Self::f(mu, x);
+        (nx, -x + Self::f(mu, nx))
+    }
+}
+
+/// Kensuke Ikeda's [map](https://en.wikipedia.org/wiki/Ikeda_map) of light in an optical ring
+#[derive(Debug, Clone)]
+pub struct IkedaAttractor {
+    p: [f64; 1],
+}
+
+impl Attractor for IkedaAttractor {
+    const NAME: &'static str = "ikeda";
+    const FORMULA: &'static str = "t = 0.4 - 6 / (1 + x^2 + y^2)\n\
+                                   x' = 1 + u (x cos t - y sin t)\n\
+                                   y' = u (x sin t + y cos t)";
+    const PARAM_NAMES: &'static [&'static str] = &["u"];
+    const DEFAULT_PARAMS: &'static [f64] = &[0.9];
+    const PARAM_RANGE: (f64, f64) = (0.0, 1.0);
+
+    fn from_params(params: &[f64]) -> Self {
+        IkedaAttractor {
+            p: params.try_into().expect("1 parameter"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+        let [u] = self.p;
+        let (sin, cos) = (0.4 - 6.0 / (1.0 + x * x + y * y)).sin_cos();
+        (1.0 + u * (x * cos - y * sin), u * (x * sin + y * cos))
+    }
+}
+
+/// The [Duffing map](https://en.wikipedia.org/wiki/Duffing_map), a discrete Duffing oscillator
+#[derive(Debug, Clone)]
+pub struct DuffingAttractor {
+    p: [f64; 2],
+}
+
+impl Attractor for DuffingAttractor {
+    const NAME: &'static str = "duffing";
+    const FORMULA: &'static str = "x' = y\ny' = -b x + a y - y^3";
+    const PARAM_NAMES: &'static [&'static str] = &["a", "b"];
+    const DEFAULT_PARAMS: &'static [f64] = &[2.75, 0.2];
+    const PARAM_RANGE: (f64, f64) = (-3.0, 3.0);
+    const START: (f64, f64) = (0.1, 0.1);
+
+    fn from_params(params: &[f64]) -> Self {
+        DuffingAttractor {
+            p: params.try_into().expect("2 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+        let [a, b] = self.p;
+        (y, -b * x + a * y - y * y * y)
+    }
+}
+
+/// René Lozi's piecewise-linear cousin of the Hénon map
+#[derive(Debug, Clone)]
+pub struct LoziAttractor {
+    p: [f64; 2],
+}
+
+impl Attractor for LoziAttractor {
+    const NAME: &'static str = "lozi";
+    const FORMULA: &'static str = "x' = 1 - a |x| + y\ny' = b x";
+    const PARAM_NAMES: &'static [&'static str] = &["a", "b"];
+    const DEFAULT_PARAMS: &'static [f64] = &[1.7, 0.5];
+    const PARAM_RANGE: (f64, f64) = (-2.0, 2.0);
+
+    fn from_params(params: &[f64]) -> Self {
+        LoziAttractor {
+            p: params.try_into().expect("2 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+        let [a, b] = self.p;
+        (1.0 - a * x.abs() + y, b * x)
+    }
+}
+
+/// Antonio Sánchez's ["Bedhead"](https://www.r-bloggers.com/2019/10/strange-attractors-an-r-experiment-about-maths-recursivity-and-creative-coding/)
+#[derive(Debug, Clone)]
+pub struct BedheadAttractor {
+    p: [f64; 2],
+}
+
+impl Attractor for BedheadAttractor {
+    const NAME: &'static str = "bedhead";
+    const FORMULA: &'static str = "x' = sin(x y / b) y + cos(a x - y)\ny' = x + sin(y) / b";
+    const PARAM_NAMES: &'static [&'static str] = &["a", "b"];
+    const DEFAULT_PARAMS: &'static [f64] = &[-0.81, -0.92];
+    const PARAM_RANGE: (f64, f64) = (-1.0, 1.0);
+    const START: (f64, f64) = (1.0, 1.0);
+
+    fn from_params(params: &[f64]) -> Self {
+        BedheadAttractor {
+            p: params.try_into().expect("2 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    #[inline(always)]
+    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+        let [a, b] = self.p;
+        ((x * y / b).sin() * y + (a * x - y).cos(), x + y.sin() / b)
+    }
+}
+
+/// Johnny Svensson's attractor
+#[derive(Debug, Clone)]
+pub struct SvenssonAttractor {
+    p: [f64; 4],
+}
+
+impl Attractor for SvenssonAttractor {
+    const NAME: &'static str = "svensson";
+    const FORMULA: &'static str = "x' = d sin(a x) - sin(b y)\ny' = c cos(a x) + cos(b y)";
+    const PARAM_NAMES: &'static [&'static str] = &["a", "b", "c", "d"];
+    const DEFAULT_PARAMS: &'static [f64] = &[1.5, -1.8, 1.6, 0.9];
+    const PARAM_RANGE: (f64, f64) = (-3.0, 3.0);
+
+    fn from_params(params: &[f64]) -> Self {
+        SvenssonAttractor {
+            p: params.try_into().expect("4 parameters"),
+        }
+    }
+
+    fn params(&self) -> &[f64] {
+        &self.p
+    }
+
+    fn bounds(&self) -> Option<Bounds> {
+        let [_, _, c, d] = self.p;
+        Some(Bounds {
+            xmin: -1.0 - d.abs(),
+            xmax: 1.0 + d.abs(),
+            ymin: -1.0 - c.abs(),
+            ymax: 1.0 + c.abs(),
+        })
+    }
+
+    #[inline(always)]
+    fn next(&self, x: f64, y: f64) -> (f64, f64) {
+        let [a, b, c, d] = self.p;
+        (
+            d * (a * x).sin() - (b * y).sin(),
+            c * (a * x).cos() + (b * y).cos(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,14 +603,15 @@ mod tests {
         );
     }
 
+    macro_rules! check_all {
+        ($($t:ty),*) => {
+            $(check_defaults::<$t>();)*
+        };
+    }
+
     #[test]
     fn default_params_are_well_formed_and_chaotic() {
-        check_defaults::<CliffordAttractor>();
-        check_defaults::<DeJongAttractor>();
-        check_defaults::<KingsDreamAttractor>();
-        check_defaults::<HenonAttractor>();
-        check_defaults::<TinkerbellAttractor>();
-        check_defaults::<SprottQuadraticAttractor>();
+        crate::all_attractors!(check_all);
     }
 
     #[test]

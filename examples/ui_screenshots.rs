@@ -128,11 +128,11 @@ fn main() {
          <h1>Explorer, rendered without windows</h1><p>Each shot: map window, then attractor window, \
          with the attractor window's title above.</p>\n",
     );
-    screenshots::<CliffordAttractor>(out_dir, &mut html);
-    screenshots::<DeJongAttractor>(out_dir, &mut html);
-    screenshots::<KingsDreamAttractor>(out_dir, &mut html);
-    screenshots::<HenonAttractor>(out_dir, &mut html);
-    screenshots::<TinkerbellAttractor>(out_dir, &mut html);
-    screenshots::<SprottQuadraticAttractor>(out_dir, &mut html);
+    macro_rules! shoot_all {
+        ($($t:ty),*) => {
+            $(screenshots::<$t>(out_dir, &mut html);)*
+        };
+    }
+    attractors::all_attractors!(shoot_all);
     fs::write(out_dir.join("index.html"), html).unwrap();
 }

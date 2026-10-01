@@ -26,16 +26,15 @@ fn kind<A: Attractor>() -> Kind {
     }
 }
 
-/// Every attractor the program knows about. Add new ones here.
+macro_rules! kinds_of {
+    ($($t:ty),*) => {
+        vec![$(kind::<$t>()),*]
+    };
+}
+
+/// Every attractor the program knows about, from `attractors::all_attractors!`
 fn kinds() -> Vec<Kind> {
-    vec![
-        kind::<CliffordAttractor>(),
-        kind::<DeJongAttractor>(),
-        kind::<KingsDreamAttractor>(),
-        kind::<HenonAttractor>(),
-        kind::<TinkerbellAttractor>(),
-        kind::<SprottQuadraticAttractor>(),
-    ]
+    attractors::all_attractors!(kinds_of)
 }
 
 fn main() {
